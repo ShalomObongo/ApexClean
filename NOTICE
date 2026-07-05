@@ -1,0 +1,87 @@
+ApexClean
+Copyright (C) 2025 The ApexClean Authors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License along with
+this program. If not, see <https://www.gnu.org/licenses/>.
+
+The complete corresponding source code for this program is published at
+<https://github.com/ShalomObongo/ApexClean>.
+
+
+================================================================================
+THIRD-PARTY MATERIAL
+================================================================================
+
+--------------------------------------------------------------------------------
+Mole — https://github.com/tw93/mole
+Copyright (C) Tw93 and the Mole contributors
+Licensed under the GNU General Public License, version 3.
+--------------------------------------------------------------------------------
+
+ApexClean is an independent application. It is not affiliated with, endorsed
+by, or derived from the proprietary "Mole for Mac" application. It adapts
+material from the open-source Mole command-line toolkit, which is licensed
+under GPL-3.0, and is therefore itself distributed under GPL-3.0.
+
+Specifically, the following knowledge and logic were studied and adapted from
+the Mole CLI source, then reimplemented in Swift for ApexClean:
+
+  1. Cleanup path catalog
+     Adapted from `lib/clean/*.sh`. The set of directories, glob patterns,
+     and file-age rules that Mole considers safe to reclaim — user caches,
+     logs, system temporary data, browser caches, developer build artifacts
+     and package-manager caches, AI-tool caches, and installer remnants.
+     Reimplemented in:
+       Sources/ApexCore/Cleanup/CleanupCatalog.swift
+       Sources/ApexCore/Cleanup/CleanupRule.swift
+
+  2. Path protection and safety boundaries
+     Adapted from `lib/core/app_protection.sh` and Mole's `safe_clean`
+     preconditions. The protected-path fragments, minimum path-depth floor,
+     mount-point refusal, symlink revalidation at the operation boundary, and
+     the "refuse when ambiguous" posture.
+     Reimplemented in:
+       Sources/ApexCore/Safety/PathGuard.swift
+       Sources/ApexCore/Safety/Remover.swift
+
+  3. Application leftover discovery
+     Adapted from Mole's uninstall evidence rules — bundle-identifier
+     matching, reverse-DNS boundary checks, team-prefixed group containers,
+     and the ambiguous-name refusal list.
+     Reimplemented in:
+       Sources/ApexCore/Apps/LeftoverFinder.swift
+
+  4. Maintenance task catalog
+     Adapted from `lib/optimize/catalog.sh`. The bounded, explainable
+     maintenance operations and their preconditions.
+     Reimplemented in:
+       Sources/ApexCore/Maintenance/MaintenanceCatalog.swift
+
+  5. System health scoring
+     Adapted from `cmd/status/*.go`. The metric set and the weighting used to
+     summarise overall system condition.
+     Reimplemented in:
+       Sources/ApexCore/Vitals/HealthScore.swift
+
+No Mole source files are redistributed in this repository. No Mole
+trademarks, icons, or other trade dress are used. ApexClean's user interface,
+visual language, interaction model, and product identity are original work.
+
+
+--------------------------------------------------------------------------------
+macOS system frameworks
+--------------------------------------------------------------------------------
+
+ApexClean links only against Apple-provided system frameworks (SwiftUI,
+AppKit, Foundation, IOKit, CoreGraphics, QuartzCore, Darwin). It bundles no
+third-party binaries, no telemetry SDKs, and no network clients. It has no
+dependencies beyond the Swift standard library and the macOS SDK.
