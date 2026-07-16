@@ -1,0 +1,297 @@
+import SwiftUI
+import ApexCore
+
+struct RootView: View {
+    @EnvironmentObject private var state: AppState
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        ZStack {
+            AuroraBackdrop(
+                intensity: state.destination == .smartCare ? 1.0 : 0.55,
+                energy: state.cleanup.stage == .scanning ? 1 : 0
+            )
+
+            HStack(spacing: 0) {
+                Sidebar()
+                Divider().overlay(Palette.hairline(scheme))
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(minWidth: 1_040, minHeight: 700)
+        .preferredColorScheme(nil)
+        .onAppear { state.vitals.addSubscriber() }
+        .onDisappear { state.vitals.removeSubscriber() }
+        // Visibility, not activity: a window the user is watching while working
+        // in another app should stay live, but one that is minimised, hidden,
+        // or fully covered should not be paying for charts nobody can see.
+        // Occlusion alone is not enough — hiding or minimising an app does not
+        // reliably post it — so every event that can take the window off screen
+        // is funnelled through the same recomputation.
+        .onReceive(WindowVisibility.changes) { _ in
+            state.vitals.setLiveUpdates(WindowVisibility.isAnyWindowOnScreen)
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        Group {
+            switch state.destination {
+            case .smartCare: SmartCareView(model: state.cleanup)
+            case .cleanup: CleanupView(model: state.cleanup)
+            case .applications: ApplicationsView(model: state.applications)
+            case .maintenance: MaintenanceView(model: state.maintenance)
+            case .spaceLens: SpaceLensView(model: state.space)
+            case .vitals: VitalsView(monitor: state.vitals)
+            case .history: HistoryView()
+            }
+        }
+        .transition(
+            .asymmetric(
+                insertion: .opacity.combined(with: .offset(y: 8)),
+                removal: .opacity
+            )
+        )
+        .id(state.destination)
+    }
+}
+
+struct Sidebar: View {
+    @EnvironmentObject private var state: AppState
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            brand
+                .padding(.horizontal, 18)
+                .padding(.top, 26)
+                .padding(.bottom, 22)
+
+            VStack(spacing: 2) {
+                ForEach(Destination.allCases) { destination in
+                    SidebarRow(
+                        destination: destination,
+                        isSelected: state.destination == destination,
+                        badge: badge(for: destination)
+                    ) {
+                        state.go(to: destination)
+                    }
+                }
+            }
+            .padding(.horizontal, 10)
+
+            Spacer(minLength: 16)
+
+            SidebarHealthFooter(vitals: state.vitals) { state.go(to: .vitals) }
+                .padding(.horizontal, 14)
+                .padding(.bottom, 14)
+        }
+        .frame(width: Metrics.sidebarWidth)
+        .background(
+            // Opaque, for the same compositing reason as ApexCard: a material
+            // here would re-blur the drifting backdrop on every frame.
+            LinearGradient(
+                colors: [
+                    Palette.canvasDeep(scheme).opacity(scheme == .dark ? 0.97 : 0.92),
+                    Palette.canvasDeep(scheme).opacity(scheme == .dark ? 0.92 : 0.86),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        )
+    }
+
+    private var brand: some View {
+        HStack(spacing: 10) {
+            AppMark(size: 28)
+            VStack(alignment: .leading, spacing: 0) {
+                Text("ApexClean")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(Palette.ink(scheme))
+                Text("Mac care, transparently")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Palette.inkTertiary(scheme))
+            }
+        }
+    }
+
+    private func badge(for destination: Destination) -> String? {
+        switch destination {
+        case .cleanup:
+            let bytes = state.cleanup.report.totalBytes
+            return bytes > 0 ? Bytes.format(bytes) : nil
+        case .applications:
+            let count = state.applications.outdated.count
+            return count > 0 ? "\(count)" : nil
+        default:
+            return nil
+        }
+    }
+}
+
+private struct SidebarRow: View {
+    let destination: Destination
+    let isSelected: Bool
+    var badge: String?
+    let action: () -> Void
+
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                // The selection indicator is a rail rather than a full-width
+                // fill: quieter, and it keeps the row's left edge aligned.
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(isSelected ? AnyShapeStyle(Palette.accentGradient) : AnyShapeStyle(Color.clear))
+                    .frame(width: 3, height: isSelected ? 20 : 0)
+
+                Image(systemName: destination.symbol)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(
+                        isSelected
+                            ? AnyShapeStyle(destination.tint)
+                            : AnyShapeStyle(Palette.inkSecondary(scheme))
+                    )
+                    .frame(width: 20)
+
+                Text(destination.title)
+                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .foregroundStyle(isSelected ? Palette.ink(scheme) : Palette.inkSecondary(scheme))
+
+                Spacer(minLength: 4)
+
+                if let badge {
+                    Text(badge)
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundStyle(destination.tint)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(
+                            Capsule().fill(destination.tint.opacity(0.15))
+                        )
+                }
+            }
+            .padding(.trailing, 10)
+            .padding(.vertical, 7)
+            .background(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .fill(
+                        isSelected
+                            ? Color.primary.opacity(scheme == .dark ? 0.07 : 0.05)
+                            : Color.primary.opacity(hovering ? 0.04 : 0)
+                    )
+                    .padding(.leading, 8)
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: isSelected)
+        .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: hovering)
+        .onHover { hovering = $0 }
+        .help(destination.subtitle)
+        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+}
+
+/// Shared page chrome: a title block plus optional trailing controls.
+struct PageHeader<Trailing: View>: View {
+    let eyebrow: String
+    let title: String
+    let subtitle: String
+    @ViewBuilder var trailing: () -> Trailing
+
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        HStack(alignment: .center) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(eyebrow).eyebrowStyle(scheme)
+                Text(title)
+                    .font(Typo.title)
+                    .foregroundStyle(Palette.ink(scheme))
+                Text(subtitle)
+                    .font(Typo.body)
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+            }
+            Spacer(minLength: 16)
+            trailing()
+        }
+    }
+}
+
+extension PageHeader where Trailing == EmptyView {
+    init(eyebrow: String, title: String, subtitle: String) {
+        self.init(eyebrow: eyebrow, title: title, subtitle: subtitle) { EmptyView() }
+    }
+}
+
+/// A compact, non-alarming condition readout. It never turns red to sell a
+/// cleanup; it reports what the evaluator actually measured.
+///
+/// Its own view so it can observe `VitalsMonitor` directly — reaching the
+/// monitor through `AppState` would subscribe to the wrong publisher and the
+/// readout would silently freeze.
+private struct SidebarHealthFooter: View {
+    @ObservedObject var vitals: VitalsMonitor
+    var onTap: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        let health = vitals.snapshot.health
+        let storage = vitals.snapshot.storage
+
+        return VStack(alignment: .leading, spacing: 11) {
+            HStack(spacing: 9) {
+                ZStack {
+                    RingGauge(
+                        value: Double(health.value) / 100,
+                        tint: Palette.health(health.value),
+                        thickness: 3.5
+                    )
+                    .frame(width: 32, height: 32)
+                    Text("\(health.value)")
+                        .font(Typo.metric(12, weight: .bold))
+                        .foregroundStyle(Palette.ink(scheme))
+                }
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("System health")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Palette.inkTertiary(scheme))
+                    Text(health.band.rawValue)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Palette.health(health.value))
+                }
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 5) {
+                CapacityBar(
+                    used: storage.used,
+                    total: storage.total,
+                    height: 5,
+                    tint: Palette.load(storage.usedFraction)
+                )
+                Text("\(Bytes.format(storage.free)) free of \(Bytes.format(storage.total))")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(Palette.inkTertiary(scheme))
+            }
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Palette.surface(scheme).opacity(scheme == .dark ? 0.5 : 0.7))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .strokeBorder(Palette.hairline(scheme), lineWidth: 1)
+        )
+        .onTapGesture { onTap() }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityHint("Opens the Vitals screen")
+    }
+}
