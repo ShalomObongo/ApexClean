@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// The last thing between a person and a destructive action.
 ///
@@ -67,9 +67,11 @@ struct RemovalConfirmation: View {
                     .foregroundStyle(Palette.ink(scheme))
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("\(Count.files(model.selectedFileCount)) in \(Count.groups(model.selectedFindings.count)).")
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.inkTertiary(scheme))
+                Text(
+                    "\(Count.files(model.selectedFileCount)) in \(Count.groups(model.selectedFindings.count))."
+                )
+                .font(Typo.caption)
+                .foregroundStyle(Palette.inkTertiary(scheme))
             }
             Spacer(minLength: 0)
         }
@@ -135,15 +137,19 @@ struct RemovalConfirmation: View {
 
     private var recoveryDetail: String {
         if model.emptiesTrashAfterCleaning {
-            return "You chose to empty the Trash as part of this pass, so nothing here survives it. Every path is still recorded in History."
+            return
+                "You chose to empty the Trash as part of this pass, so nothing here survives it. Every path is still recorded in History."
         }
         if permanent {
-            return "Items already in the Trash cannot be moved to the Trash again, so these are erased from disk."
+            return
+                "Items already in the Trash cannot be moved to the Trash again, so these are erased from disk."
         }
         if model.selectionMixesTrash {
-            return "Everything goes to the Trash except the \(Bytes.format(model.selectedTrashBytes)) already in it, which is erased — the Trash cannot hold itself twice."
+            return
+                "Everything goes to the Trash except the \(Bytes.format(model.selectedTrashBytes)) already in it, which is erased — the Trash cannot hold itself twice."
         }
-        return "Everything goes to the Trash with its original location intact, and every path is recorded in History."
+        return
+            "Everything goes to the Trash with its original location intact, and every path is recorded in History."
     }
 
     private var skipped: some View {
@@ -154,10 +160,12 @@ struct RemovalConfirmation: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text("\(model.skippedBlockedFindings.count) selected \(model.skippedBlockedFindings.count == 1 ? "group is" : "groups are") in use and will be skipped")
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(Palette.ink(scheme))
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "\(model.skippedBlockedFindings.count) selected \(model.skippedBlockedFindings.count == 1 ? "group is" : "groups are") in use and will be skipped"
+                )
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(Palette.ink(scheme))
+                .fixedSize(horizontal: false, vertical: true)
                 Text("Quit \(blockedAppList) to include them.")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.inkTertiary(scheme))
@@ -226,11 +234,13 @@ struct RemovalConfirmation: View {
         }
         switch model.trashState {
         case let .holding(bytes, items):
-            return "\(Bytes.format(bytes)) in \(items) \(items == 1 ? "item" : "items") is already sitting in the Trash. Leave this off to keep today's cleanup recoverable."
+            return
+                "\(Bytes.format(bytes)) in \(items) \(items == 1 ? "item" : "items") is already sitting in the Trash. Leave this off to keep today's cleanup recoverable."
         case .empty:
             return "The Trash is empty, so this would only erase what this pass puts there."
         case .unreadable:
-            return "macOS keeps the Trash private unless ApexClean has Full Disk Access, so its size is unknown. Finder will empty it."
+            return
+                "macOS keeps the Trash private unless ApexClean has Full Disk Access, so its size is unknown. Finder will empty it."
         }
     }
 

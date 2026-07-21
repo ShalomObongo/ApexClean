@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// A bounded macOS maintenance action.
 ///
@@ -185,7 +185,8 @@ public final class MaintenanceRunner {
 
     private func rebuildIcons(_ task: MaintenanceTask) -> MaintenanceResult {
         let remover = Remover()
-        let caches = Glob.expand("~/Library/Caches/com.apple.iconservices.store")
+        let caches =
+            Glob.expand("~/Library/Caches/com.apple.iconservices.store")
             + Glob.expand("~/Library/Caches/com.apple.iconservices")
         let outcome = remover.remove(caches, disposal: .delete)
 
@@ -203,7 +204,8 @@ public final class MaintenanceRunner {
     }
 
     private func repairLaunchServices(_ task: MaintenanceTask) -> MaintenanceResult {
-        let lsregister = "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+        let lsregister =
+            "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
             + "LaunchServices.framework/Support/lsregister"
         guard Shell.exists(lsregister) else {
             return .init(task: task, succeeded: false, detail: "lsregister unavailable", bytesFreed: 0)
@@ -218,7 +220,7 @@ public final class MaintenanceRunner {
 
     private func verifySpotlight(_ task: MaintenanceTask) -> MaintenanceResult {
         guard let mdutil = Shell.which("mdutil"),
-              let output = Shell.run(mdutil, ["-s", "/"], timeout: 8)
+            let output = Shell.run(mdutil, ["-s", "/"], timeout: 8)
         else {
             return .init(task: task, succeeded: false, detail: "Could not query Spotlight", bytesFreed: 0)
         }
@@ -236,11 +238,13 @@ public final class MaintenanceRunner {
             return .init(task: task, succeeded: false, detail: "plutil unavailable", bytesFreed: 0)
         }
         let preferences = PathGuard.home.appendingPathComponent("Library/Preferences")
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: preferences,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else {
+        guard
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: preferences,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        else {
             return .init(task: task, succeeded: true, detail: "Nothing to check", bytesFreed: 0)
         }
 
@@ -270,8 +274,10 @@ public final class MaintenanceRunner {
     private func clearSavedState(_ task: MaintenanceTask) -> MaintenanceResult {
         let cutoff = Date().addingTimeInterval(-30 * 86_400)
         let candidates = Glob.expand("~/Library/Saved Application State/*.savedState").filter { url in
-            guard let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
-                .contentModificationDate else { return false }
+            guard
+                let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate
+            else { return false }
             return modified < cutoff
         }
         guard !candidates.isEmpty else {
@@ -296,7 +302,8 @@ public final class MaintenanceRunner {
         return .init(
             task: task,
             succeeded: true,
-            detail: "Removed \(outcome.removed.count) broken \(outcome.removed.count == 1 ? "item" : "items")",
+            detail:
+                "Removed \(outcome.removed.count) broken \(outcome.removed.count == 1 ? "item" : "items")",
             bytesFreed: outcome.bytesReclaimed
         )
     }
@@ -312,11 +319,12 @@ public final class MaintenanceRunner {
 
     private func verifyDisk(_ task: MaintenanceTask) -> MaintenanceResult {
         guard let diskutil = Shell.which("diskutil"),
-              let output = Shell.run(diskutil, ["verifyVolume", "/"], timeout: 180)
+            let output = Shell.run(diskutil, ["verifyVolume", "/"], timeout: 180)
         else {
             return .init(task: task, succeeded: false, detail: "Verification unavailable", bytesFreed: 0)
         }
-        let healthy = output.localizedCaseInsensitiveContains("appears to be OK")
+        let healthy =
+            output.localizedCaseInsensitiveContains("appears to be OK")
             || output.localizedCaseInsensitiveContains("The volume /  appears to be OK")
         return .init(
             task: task,

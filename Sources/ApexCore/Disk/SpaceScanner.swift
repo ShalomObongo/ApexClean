@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// One node in the on-disk size tree.
 public final class SpaceNode: Identifiable, Hashable {
@@ -221,7 +221,11 @@ public final class SpaceScanner {
         let isPackage = values.isPackage == true
         let isOpaque = depth > 0 && Traversal.isOpaqueContainer(url)
         if isPackage || isOpaque || depth >= maxDepth {
-            let measurement = FileSize.measure(url, isCancelled: { self.tick(); return self.isCancelled })
+            let measurement = FileSize.measure(
+                url,
+                isCancelled: {
+                    self.tick(); return self.isCancelled
+                })
             return SpaceNode(
                 url: url,
                 name: name,
@@ -314,12 +318,14 @@ public enum LargeFileFinder {
             .isRegularFileKey, .totalFileAllocatedSizeKey,
             .fileAllocatedSizeKey, .contentModificationDateKey,
         ]
-        guard let enumerator = FileManager.default.enumerator(
-            at: root,
-            includingPropertiesForKeys: Array(keys),
-            options: [.skipsPackageDescendants],
-            errorHandler: { _, _ in true }
-        ) else { return [] }
+        guard
+            let enumerator = FileManager.default.enumerator(
+                at: root,
+                includingPropertiesForKeys: Array(keys),
+                options: [.skipsPackageDescendants],
+                errorHandler: { _, _ in true }
+            )
+        else { return [] }
 
         let fence = Traversal.VolumeFence(root: root)
         var matches: [Match] = []
@@ -331,12 +337,13 @@ public enum LargeFileFinder {
             if skipping.contains(url.path)
                 || (!includesProtectedLocations && PrivacyAccess.requiresConsent(url.path))
                 || Traversal.isOpaqueContainer(url)
-                || !fence.admits(url) {
+                || !fence.admits(url)
+            {
                 enumerator.skipDescendants()
                 continue
             }
             guard let values = try? url.resourceValues(forKeys: keys),
-                  values.isRegularFile == true
+                values.isRegularFile == true
             else { continue }
             let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             guard bytes >= minimumBytes else { continue }

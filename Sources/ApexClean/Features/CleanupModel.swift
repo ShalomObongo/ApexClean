@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// Drives scanning and selection for both Smart Care and Cleanup.
 ///
@@ -87,7 +87,12 @@ final class CleanupModel: ObservableObject {
     /// What the selection breaks down into, largest first.
     var selectionBreakdown: [(category: CleanupCategory, bytes: Int64, files: Int)] {
         Dictionary(grouping: selectedFindings, by: \.category)
-            .map { (category: $0.key, bytes: $0.value.reduce(0) { $0 + $1.bytes }, files: $0.value.reduce(0) { $0 + $1.fileCount }) }
+            .map {
+                (
+                    category: $0.key, bytes: $0.value.reduce(0) { $0 + $1.bytes },
+                    files: $0.value.reduce(0) { $0 + $1.fileCount }
+                )
+            }
             .sorted { $0.bytes > $1.bytes }
     }
 
@@ -203,8 +208,11 @@ final class CleanupModel: ObservableObject {
 
     func toggle(_ finding: CleanupFinding) {
         guard !finding.isBlocked else { return }
-        if selection.contains(finding.id) { selection.remove(finding.id) }
-        else { selection.insert(finding.id) }
+        if selection.contains(finding.id) {
+            selection.remove(finding.id)
+        } else {
+            selection.insert(finding.id)
+        }
     }
 
     func toggle(group: CleanupGroup) {

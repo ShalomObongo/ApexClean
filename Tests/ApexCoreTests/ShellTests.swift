@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 /// `Shell.run` is the primitive under every process-backed reading in the app,
@@ -48,7 +49,7 @@ final class ShellTests: XCTestCase {
             results.add(value ?? "nil")
             lock.unlock()
         }
-        XCTAssertEqual(Set(results as! [String]), Set((0 ..< 8).map { "run-\($0)" }))
+        XCTAssertEqual(Set(results as! [String]), Set((0..<8).map { "run-\($0)" }))
     }
 }
 

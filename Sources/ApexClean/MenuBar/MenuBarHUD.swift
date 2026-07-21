@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// The menu bar HUD.
 ///
@@ -309,7 +309,7 @@ struct MenuBarLabel: View {
     private func symbol(for health: Int) -> String {
         switch health {
         case 85...: "circle.hexagongrid.fill"
-        case 65 ..< 85: "circle.hexagongrid"
+        case 65..<85: "circle.hexagongrid"
         default: "circle.hexagongrid.circle"
         }
     }

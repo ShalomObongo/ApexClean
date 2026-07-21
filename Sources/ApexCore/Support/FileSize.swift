@@ -43,7 +43,8 @@ public enum FileSize {
         guard fm.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return Measurement() }
 
         // Never follow a symlink into unrelated storage; the link itself is all we own.
-        if let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink == true {
+        if let values = try? url.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink == true
+        {
             return Measurement(bytes: allocatedSize(of: url), fileCount: 1)
         }
 
@@ -52,12 +53,14 @@ public enum FileSize {
         }
 
         var result = Measurement()
-        guard let enumerator = fm.enumerator(
-            at: url,
-            includingPropertiesForKeys: Array(allocationKeys),
-            options: [],
-            errorHandler: { _, _ in true }
-        ) else {
+        guard
+            let enumerator = fm.enumerator(
+                at: url,
+                includingPropertiesForKeys: Array(allocationKeys),
+                options: [],
+                errorHandler: { _, _ in true }
+            )
+        else {
             return result
         }
 
@@ -83,11 +86,13 @@ public enum FileSize {
     /// Cheap top-level entry count, capped so a directory with a million entries
     /// cannot stall a scan just to answer "is there anything in here?".
     public static func hasEntries(_ url: URL) -> Bool {
-        guard let iterator = FileManager.default.enumerator(
-            at: url,
-            includingPropertiesForKeys: nil,
-            options: [.skipsSubdirectoryDescendants]
-        ) else { return false }
+        guard
+            let iterator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: [.skipsSubdirectoryDescendants]
+            )
+        else { return false }
         return iterator.nextObject() != nil
     }
 }

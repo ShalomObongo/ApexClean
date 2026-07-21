@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// Offers to widen a scan into the folders macOS protects.
 ///

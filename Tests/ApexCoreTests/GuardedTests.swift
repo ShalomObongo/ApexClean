@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 /// `Guarded` exists so a syscall that blocks in the kernel cannot take a

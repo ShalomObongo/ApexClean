@@ -1,6 +1,6 @@
-import SwiftUI
 import AppKit
 import QuartzCore
+import SwiftUI
 
 /// The ambient backdrop.
 ///
@@ -101,7 +101,8 @@ final class AuroraNSView: NSView {
     func configure(isDark: Bool, intensity: Double, energy: Double, animates: Bool) {
         // Rebuilding is comparatively costly, so only do it when something that
         // actually affects the imagery changed.
-        let key = "\(isDark)-\(String(format: "%.2f", intensity))-\(String(format: "%.2f", energy))-\(animates)"
+        let key =
+            "\(isDark)-\(String(format: "%.2f", intensity))-\(String(format: "%.2f", energy))-\(animates)"
         guard key != currentKey else { return }
         currentKey = key
 
@@ -118,7 +119,7 @@ final class AuroraNSView: NSView {
         ]
         let opacities: [Double] = isDark ? [0.62, 0.54, 0.42] : [0.34, 0.28, 0.22]
 
-        for index in 0 ..< Self.specs.count {
+        for index in 0..<Self.specs.count {
             let layer = CALayer()
             layer.contents = RadialFieldImage.tinted(colors[index])
             layer.contentsGravity = .resize
@@ -213,15 +214,17 @@ enum RadialFieldImage {
     }
 
     private static func render(_ color: NSColor, side: Int = 512) -> CGImage? {
-        guard let context = CGContext(
-            data: nil,
-            width: side,
-            height: side,
-            bitsPerComponent: 8,
-            bytesPerRow: 0,
-            space: CGColorSpace(name: CGColorSpace.sRGB)!,
-            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-        ) else { return nil }
+        guard
+            let context = CGContext(
+                data: nil,
+                width: side,
+                height: side,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+            )
+        else { return nil }
 
         let red = color.redComponent
         let green = color.greenComponent
@@ -229,17 +232,20 @@ enum RadialFieldImage {
 
         // A three-stop falloff to fully transparent, so the edge is soft without
         // needing a blur filter.
-        let colors = [
-            CGColor(srgbRed: red, green: green, blue: blue, alpha: 1),
-            CGColor(srgbRed: red, green: green, blue: blue, alpha: 0.42),
-            CGColor(srgbRed: red, green: green, blue: blue, alpha: 0),
-        ] as CFArray
+        let colors =
+            [
+                CGColor(srgbRed: red, green: green, blue: blue, alpha: 1),
+                CGColor(srgbRed: red, green: green, blue: blue, alpha: 0.42),
+                CGColor(srgbRed: red, green: green, blue: blue, alpha: 0),
+            ] as CFArray
 
-        guard let gradient = CGGradient(
-            colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-            colors: colors,
-            locations: [0, 0.36, 1]
-        ) else { return nil }
+        guard
+            let gradient = CGGradient(
+                colorsSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                colors: colors,
+                locations: [0, 0.36, 1]
+            )
+        else { return nil }
 
         let centre = CGPoint(x: Double(side) / 2, y: Double(side) / 2)
         context.drawRadialGradient(
@@ -295,16 +301,16 @@ enum GrainTile {
         let image = NSImage(size: NSSize(width: side, height: side))
         pixels.withUnsafeMutableBytes { buffer in
             guard let base = buffer.baseAddress,
-                  let context = CGContext(
-                      data: base,
-                      width: side,
-                      height: side,
-                      bitsPerComponent: 8,
-                      bytesPerRow: side * bytesPerPixel,
-                      space: CGColorSpaceCreateDeviceRGB(),
-                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-                  ),
-                  let cgImage = context.makeImage()
+                let context = CGContext(
+                    data: base,
+                    width: side,
+                    height: side,
+                    bitsPerComponent: 8,
+                    bytesPerRow: side * bytesPerPixel,
+                    space: CGColorSpaceCreateDeviceRGB(),
+                    bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                ),
+                let cgImage = context.makeImage()
             else { return }
             image.addRepresentation(NSBitmapImageRep(cgImage: cgImage))
         }

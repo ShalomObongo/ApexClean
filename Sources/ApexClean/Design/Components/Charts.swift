@@ -51,17 +51,19 @@ struct Sparkline: View {
                 // A drawn halo instead of a shadow filter: the same read at a
                 // fraction of the cost, and it never triggers offscreen passes.
                 context.fill(
-                    Path(ellipseIn: CGRect(
-                        x: last.x - radius * 2.4, y: last.y - radius * 2.4,
-                        width: radius * 4.8, height: radius * 4.8
-                    )),
+                    Path(
+                        ellipseIn: CGRect(
+                            x: last.x - radius * 2.4, y: last.y - radius * 2.4,
+                            width: radius * 4.8, height: radius * 4.8
+                        )),
                     with: .color(tint.opacity(0.22))
                 )
                 context.fill(
-                    Path(ellipseIn: CGRect(
-                        x: last.x - radius, y: last.y - radius,
-                        width: radius * 2, height: radius * 2
-                    )),
+                    Path(
+                        ellipseIn: CGRect(
+                            x: last.x - radius, y: last.y - radius,
+                            width: radius * 2, height: radius * 2
+                        )),
                     with: .color(tint)
                 )
             }
@@ -88,7 +90,7 @@ struct Sparkline: View {
         path.move(to: points[0])
         // Midpoint quadratic smoothing: cheap, stable, and never overshoots the
         // data the way a naive cubic spline can.
-        for index in 1 ..< points.count {
+        for index in 1..<points.count {
             let previous = points[index - 1]
             let current = points[index]
             let mid = CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2)
@@ -217,7 +219,9 @@ struct SegmentedBar: View {
                     RoundedRectangle(cornerRadius: 3, style: .continuous)
                         .fill(
                             LinearGradient(
-                                colors: [segment.color, segment.color.mixed(with: Palette.cyan, amount: 0.28)],
+                                colors: [
+                                    segment.color, segment.color.mixed(with: Palette.cyan, amount: 0.28),
+                                ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )

@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 /// Covers the rules that keep a scan from wandering somewhere it can never
@@ -24,10 +25,12 @@ final class TraversalTests: XCTestCase {
     }
 
     func testProviderBackedHomeFoldersAreOpaque() {
-        XCTAssertTrue(Traversal.isOpaqueContainer(
-            URL(fileURLWithPath: "/Users/x/Library/Mobile Documents")))
-        XCTAssertTrue(Traversal.isOpaqueContainer(
-            URL(fileURLWithPath: "/Users/x/Library/CloudStorage/Dropbox")))
+        XCTAssertTrue(
+            Traversal.isOpaqueContainer(
+                URL(fileURLWithPath: "/Users/x/Library/Mobile Documents")))
+        XCTAssertTrue(
+            Traversal.isOpaqueContainer(
+                URL(fileURLWithPath: "/Users/x/Library/CloudStorage/Dropbox")))
     }
 
     /// The rule that caused the original loose-matching bug: a folder a person
@@ -57,8 +60,9 @@ final class TraversalTests: XCTestCase {
     /// The Data volume holds the user's files; excluding it would exclude
     /// everything worth measuring.
     func testDataVolumeIsNotOpaque() {
-        XCTAssertFalse(Traversal.isOpaqueContainer(
-            URL(fileURLWithPath: "/System/Volumes/Data/Users/x")))
+        XCTAssertFalse(
+            Traversal.isOpaqueContainer(
+                URL(fileURLWithPath: "/System/Volumes/Data/Users/x")))
     }
 
     // MARK: - Volume fence
@@ -77,8 +81,8 @@ final class TraversalTests: XCTestCase {
         let fence = Traversal.VolumeFence(root: PathGuard.home)
         let other = URL(fileURLWithPath: "/System/Volumes/Preboot")
         guard let homeVolume = Traversal.volumeIdentifier(of: PathGuard.home),
-              let otherVolume = Traversal.volumeIdentifier(of: other),
-              !homeVolume.isEqual(otherVolume)
+            let otherVolume = Traversal.volumeIdentifier(of: other),
+            !homeVolume.isEqual(otherVolume)
         else {
             throw XCTSkip("No separate volume available to fence against")
         }
@@ -92,7 +96,8 @@ final class TraversalTests: XCTestCase {
 }
 
 /// Behaviour of the tree walk itself.
-final class SpaceScannerTests: XCTestCase {    private var root: URL!
+final class SpaceScannerTests: XCTestCase {
+    private var root: URL!
 
     override func setUpWithError() throws {
         root = FileManager.default.temporaryDirectory
@@ -226,8 +231,9 @@ final class GuardedDirectoryListerTests: XCTestCase {
         for name in ["a", "b", "c"] {
             try Data(count: 8).write(to: root.appendingPathComponent(name))
         }
-        let contents = try XCTUnwrap(GuardedDirectoryLister().contents(
-            of: root, includingPropertiesForKeys: []))
+        let contents = try XCTUnwrap(
+            GuardedDirectoryLister().contents(
+                of: root, includingPropertiesForKeys: []))
         XCTAssertEqual(Set(contents.map(\.lastPathComponent)), ["a", "b", "c"])
     }
 
@@ -246,12 +252,14 @@ final class GuardedDirectoryListerTests: XCTestCase {
         try Data(count: 8).write(to: root.appendingPathComponent("kept"))
 
         // A zero budget guarantees the timeout path is taken.
-        XCTAssertNil(lister.contents(
-            of: root, includingPropertiesForKeys: [], budget: 0))
+        XCTAssertNil(
+            lister.contents(
+                of: root, includingPropertiesForKeys: [], budget: 0))
         XCTAssertEqual(lister.abandonedPaths.count, 1)
 
-        let recovered = try XCTUnwrap(lister.contents(
-            of: root, includingPropertiesForKeys: []))
+        let recovered = try XCTUnwrap(
+            lister.contents(
+                of: root, includingPropertiesForKeys: []))
         XCTAssertEqual(recovered.map(\.lastPathComponent), ["kept"])
     }
 

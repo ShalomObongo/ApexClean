@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 struct VitalsView: View {
     @EnvironmentObject private var state: AppState
@@ -91,10 +91,12 @@ struct VitalsView: View {
                 VStack(alignment: .leading, spacing: 9) {
                     Text("Every point is accounted for").eyebrowStyle(scheme)
                     if health.significantFactors.isEmpty {
-                        Text("Nothing is currently costing your Mac points. This score is a summary of load, not a reason to clean anything.")
-                            .font(Typo.body)
-                            .foregroundStyle(Palette.inkSecondary(scheme))
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(
+                            "Nothing is currently costing your Mac points. This score is a summary of load, not a reason to clean anything."
+                        )
+                        .font(Typo.body)
+                        .foregroundStyle(Palette.inkSecondary(scheme))
+                        .fixedSize(horizontal: false, vertical: true)
                     } else {
                         ForEach(health.significantFactors) { factor in
                             HStack(spacing: 10) {
@@ -129,7 +131,8 @@ struct VitalsView: View {
             symbol: "cpu",
             tint: Palette.load(cpu.usage / 100),
             value: String(format: "%.0f%%", cpu.usage),
-            caption: "\(cpu.physicalCores)P/\(cpu.logicalCores)L cores · load \(String(format: "%.2f", cpu.loadAverage.0))"
+            caption:
+                "\(cpu.physicalCores)P/\(cpu.logicalCores)L cores · load \(String(format: "%.2f", cpu.loadAverage.0))"
         ) {
             VStack(spacing: 9) {
                 Sparkline(values: vitals.cpuHistory, tint: Palette.load(cpu.usage / 100), ceiling: 1)
@@ -200,9 +203,11 @@ struct VitalsView: View {
                     if storage.purgeable > 0 {
                         detailRow("Purgeable by macOS", Bytes.format(storage.purgeable))
                     }
-                    detailRow("Reclaimable by ApexClean", state.cleanup.report.totalBytes > 0
-                        ? Bytes.format(state.cleanup.report.totalBytes)
-                        : "run a scan")
+                    detailRow(
+                        "Reclaimable by ApexClean",
+                        state.cleanup.report.totalBytes > 0
+                            ? Bytes.format(state.cleanup.report.totalBytes)
+                            : "run a scan")
                 }
             }
         }
@@ -254,8 +259,9 @@ struct VitalsView: View {
                 VStack(spacing: 4) {
                     detailRow("Maximum capacity", "\(Int(power.healthFraction * 100))%")
                     detailRow("Cycle count", "\(power.cycleCount)")
-                    detailRow("Condition", power.condition,
-                              tint: power.condition == "Normal" ? nil : Palette.caution)
+                    detailRow(
+                        "Condition", power.condition,
+                        tint: power.condition == "Normal" ? nil : Palette.caution)
                     if power.temperatureCelsius > 0 {
                         detailRow("Temperature", String(format: "%.1f °C", power.temperatureCelsius))
                     }

@@ -1,5 +1,5 @@
-import Foundation
 import CoreGraphics
+import Foundation
 
 /// Squarified treemap layout (Bruls, Huizing & van Wijk).
 ///
@@ -39,8 +39,10 @@ public enum Treemap {
                 let candidateArea = rowArea + nextArea
                 let candidate = row.map { Double($0.bytes) * scale } + [nextArea]
 
-                if row.isEmpty || worstRatio(candidate, length: shortSide, total: candidateArea)
-                    <= worstRatio(row.map { Double($0.bytes) * scale }, length: shortSide, total: rowArea) {
+                if row.isEmpty
+                    || worstRatio(candidate, length: shortSide, total: candidateArea)
+                        <= worstRatio(row.map { Double($0.bytes) * scale }, length: shortSide, total: rowArea)
+                {
                     row.append(next)
                     rowArea = candidateArea
                     remaining.removeFirst()

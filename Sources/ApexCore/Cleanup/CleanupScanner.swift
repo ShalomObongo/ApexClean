@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// One discovered, removable item.
 public struct CleanupItem: Identifiable, Hashable {
@@ -309,17 +309,20 @@ public final class CleanupScanner {
 
     private func trashFinding() -> CleanupFinding? {
         let trash = PathGuard.home.appendingPathComponent(".Trash")
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: trash,
-            includingPropertiesForKeys: [.contentModificationDateKey],
-            options: []
-        ), !contents.isEmpty else { return nil }
+        guard
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: trash,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: []
+            ), !contents.isEmpty
+        else { return nil }
 
         var items: [CleanupItem] = []
         for url in contents {
             if isCancelled { break }
             let measurement = FileSize.measure(url, isCancelled: { self.isCancelled })
-            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
             items.append(
                 CleanupItem(
                     url: url,

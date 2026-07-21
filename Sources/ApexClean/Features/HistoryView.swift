@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// Full accountability: every session and every path ApexClean has removed.
 struct HistoryView: View {
@@ -49,7 +49,9 @@ struct HistoryView: View {
 
     private var totals: some View {
         HStack(spacing: 14) {
-            statTile("Reclaimed in total", Bytes.format(state.totalReclaimedEver), Palette.jade, "arrow.down.circle")
+            statTile(
+                "Reclaimed in total", Bytes.format(state.totalReclaimedEver), Palette.jade,
+                "arrow.down.circle")
             statTile("Sessions", "\(sessions.count)", Palette.info, "clock")
             statTile(
                 "Recoverable",
@@ -89,9 +91,11 @@ struct HistoryView: View {
                             Text(session.title)
                                 .font(Typo.cardTitle)
                                 .foregroundStyle(Palette.ink(scheme))
-                            Text("\(Count.items(session.itemCount)) · \(session.recoverableCount) recoverable from Trash")
-                                .font(Typo.caption)
-                                .foregroundStyle(Palette.inkTertiary(scheme))
+                            Text(
+                                "\(Count.items(session.itemCount)) · \(session.recoverableCount) recoverable from Trash"
+                            )
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.inkTertiary(scheme))
                         }
                         Spacer(minLength: 8)
                         VStack(alignment: .trailing, spacing: 1) {
@@ -121,10 +125,12 @@ struct HistoryView: View {
                 VStack(spacing: 5) {
                     ForEach(entries) { entry in
                         HStack(spacing: 8) {
-                            Image(systemName: entry.recoverable ? "arrow.uturn.backward.circle" : "xmark.circle")
-                                .font(.system(size: 9))
-                                .foregroundStyle(entry.recoverable ? Palette.jade : Palette.inkTertiary(scheme))
-                                .help(entry.recoverable ? "In the Trash" : "Removed directly")
+                            Image(
+                                systemName: entry.recoverable ? "arrow.uturn.backward.circle" : "xmark.circle"
+                            )
+                            .font(.system(size: 9))
+                            .foregroundStyle(entry.recoverable ? Palette.jade : Palette.inkTertiary(scheme))
+                            .help(entry.recoverable ? "In the Trash" : "Removed directly")
                             Text(Glob.display(entry.path))
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(Palette.inkSecondary(scheme))
@@ -154,11 +160,13 @@ struct HistoryView: View {
                 Text("Nothing removed yet")
                     .font(Typo.metric(16))
                     .foregroundStyle(Palette.ink(scheme))
-                Text("When ApexClean removes something, it will be listed here with its exact path, size, and whether it can be restored from the Trash.")
-                    .font(Typo.body)
-                    .foregroundStyle(Palette.inkTertiary(scheme))
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(
+                    "When ApexClean removes something, it will be listed here with its exact path, size, and whether it can be restored from the Trash."
+                )
+                .font(Typo.body)
+                .foregroundStyle(Palette.inkTertiary(scheme))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity)
         }

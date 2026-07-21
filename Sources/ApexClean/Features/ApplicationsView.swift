@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 struct ApplicationsView: View {
     @EnvironmentObject private var state: AppState
@@ -30,10 +30,12 @@ struct ApplicationsView: View {
             }
         }
         .task { if model.apps.isEmpty { model.load() } }
-        .sheet(item: Binding(
-            get: { model.plan.map { PlanBox(plan: $0) } },
-            set: { if $0 == nil { model.dismissPlan() } }
-        )) { box in
+        .sheet(
+            item: Binding(
+                get: { model.plan.map { PlanBox(plan: $0) } },
+                set: { if $0 == nil { model.dismissPlan() } }
+            )
+        ) { box in
             UninstallSheet(plan: box.plan, model: model)
         }
     }
@@ -42,7 +44,8 @@ struct ApplicationsView: View {
         PageHeader(
             eyebrow: "Applications",
             title: "Manage what's installed",
-            subtitle: "\(model.apps.count) apps · \(Bytes.format(model.totalAppBytes)) in bundles. Uninstalling shows every file first."
+            subtitle:
+                "\(model.apps.count) apps · \(Bytes.format(model.totalAppBytes)) in bundles. Uninstalling shows every file first."
         ) {
             HStack(spacing: 8) {
                 searchField
@@ -138,17 +141,19 @@ struct ApplicationsView: View {
                         kind: .empty(
                             symbol: "square.grid.2x2",
                             title: "No applications found",
-                            message: "ApexClean looks in /Applications, /Applications/Utilities, and your personal Applications folder."
+                            message:
+                                "ApexClean looks in /Applications, /Applications/Utilities, and your personal Applications folder."
                         ),
                         action: ("Try again", "arrow.clockwise", { model.load() })
                     )
                 }
             } else if model.filteredApps.isEmpty {
-                StateView(kind: .empty(
-                    symbol: "magnifyingglass",
-                    title: "No matches",
-                    message: "Nothing installed matches “\(model.search)”."
-                ))
+                StateView(
+                    kind: .empty(
+                        symbol: "magnifyingglass",
+                        title: "No matches",
+                        message: "Nothing installed matches “\(model.search)”."
+                    ))
             } else {
                 ScrollView {
                     LazyVStack(spacing: 8) {
@@ -156,7 +161,10 @@ struct ApplicationsView: View {
                             unusedBanner
                         }
                         ForEach(model.filteredApps) { app in
-                            AppRow(app: app, isPreparing: model.isBuildingPlan && model.pendingUninstallID == app.id) { model.preparePlan(for: app) }
+                            AppRow(
+                                app: app,
+                                isPreparing: model.isBuildingPlan && model.pendingUninstallID == app.id
+                            ) { model.preparePlan(for: app) }
                         }
                     }
                     .padding(.horizontal, 28)
@@ -175,9 +183,11 @@ struct ApplicationsView: View {
                     Text("\(model.unusedApps.count) apps unopened for 4 months")
                         .font(Typo.cardTitle)
                         .foregroundStyle(Palette.ink(scheme))
-                    Text("\(Bytes.format(bytes)) in bundles. This is an observation, not a recommendation — you may still want them.")
-                        .font(Typo.secondary)
-                        .foregroundStyle(Palette.inkSecondary(scheme))
+                    Text(
+                        "\(Bytes.format(bytes)) in bundles. This is an observation, not a recommendation — you may still want them."
+                    )
+                    .font(Typo.secondary)
+                    .foregroundStyle(Palette.inkSecondary(scheme))
                 }
                 Spacer(minLength: 0)
             }
@@ -195,10 +205,12 @@ struct ApplicationsView: View {
                             Text("Update checking needs Homebrew")
                                 .font(Typo.cardTitle)
                                 .foregroundStyle(Palette.ink(scheme))
-                            Text("ApexClean does not run its own update service or contact vendor servers. Where Homebrew manages an app, ApexClean can surface and apply its updates. Apps from the App Store update through the App Store.")
-                                .font(Typo.body)
-                                .foregroundStyle(Palette.inkSecondary(scheme))
-                                .fixedSize(horizontal: false, vertical: true)
+                            Text(
+                                "ApexClean does not run its own update service or contact vendor servers. Where Homebrew manages an app, ApexClean can surface and apply its updates. Apps from the App Store update through the App Store."
+                            )
+                            .font(Typo.body)
+                            .foregroundStyle(Palette.inkSecondary(scheme))
+                            .fixedSize(horizontal: false, vertical: true)
                         }
                     }
                 } else if model.isCheckingUpdates {
@@ -231,7 +243,8 @@ struct ApplicationsView: View {
                     if model.outdated.count > 1 {
                         ApexCard(padding: 13, accent: Palette.jade) {
                             HStack(spacing: 12) {
-                                GlyphTile(symbol: "square.and.arrow.down.on.square", tint: Palette.jade, size: 30)
+                                GlyphTile(
+                                    symbol: "square.and.arrow.down.on.square", tint: Palette.jade, size: 30)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("\(model.outdated.count) updates available")
                                         .font(Typo.cardTitle)
@@ -263,7 +276,8 @@ struct ApplicationsView: View {
                             VStack(alignment: .leading, spacing: 7) {
                                 HStack(spacing: 12) {
                                     GlyphTile(
-                                        symbol: failure != nil ? "exclamationmark.triangle" : "arrow.down.app",
+                                        symbol: failure != nil
+                                            ? "exclamationmark.triangle" : "arrow.down.app",
                                         tint: failure != nil ? Palette.caution : Palette.jade,
                                         size: 30
                                     )
@@ -271,15 +285,18 @@ struct ApplicationsView: View {
                                         Text(cask.token.replacingOccurrences(of: "-", with: " ").capitalized)
                                             .font(Typo.cardTitle)
                                             .foregroundStyle(Palette.ink(scheme))
-                                        Text(isUpgrading
-                                             ? "Downloading and installing \(cask.latestVersion)…"
-                                             : "\(cask.currentVersion) → \(cask.latestVersion)")
-                                            .font(Typo.numeric(11))
-                                            .foregroundStyle(Palette.inkTertiary(scheme))
+                                        Text(
+                                            isUpgrading
+                                                ? "Downloading and installing \(cask.latestVersion)…"
+                                                : "\(cask.currentVersion) → \(cask.latestVersion)"
+                                        )
+                                        .font(Typo.numeric(11))
+                                        .foregroundStyle(Palette.inkTertiary(scheme))
                                     }
                                     Spacer()
                                     ApexButton(
-                                        title: isUpgrading ? "Updating" : (failure != nil ? "Try again" : "Update"),
+                                        title: isUpgrading
+                                            ? "Updating" : (failure != nil ? "Try again" : "Update"),
                                         kind: .secondary,
                                         size: .compact,
                                         isLoading: isUpgrading
@@ -315,14 +332,19 @@ struct ApplicationsView: View {
                 if !model.orphanedStartupItems.isEmpty {
                     ApexCard(padding: 14, accent: Palette.caution) {
                         HStack(spacing: 12) {
-                            GlyphTile(symbol: "bolt.trianglebadge.exclamationmark", tint: Palette.caution, size: 32)
+                            GlyphTile(
+                                symbol: "bolt.trianglebadge.exclamationmark", tint: Palette.caution, size: 32)
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("\(model.orphanedStartupItems.count) startup \(model.orphanedStartupItems.count == 1 ? "item points" : "items point") at a missing program")
-                                    .font(Typo.cardTitle)
-                                    .foregroundStyle(Palette.ink(scheme))
-                                Text("launchd retries these on every login and they always fail. Safe to remove.")
-                                    .font(Typo.secondary)
-                                    .foregroundStyle(Palette.inkSecondary(scheme))
+                                Text(
+                                    "\(model.orphanedStartupItems.count) startup \(model.orphanedStartupItems.count == 1 ? "item points" : "items point") at a missing program"
+                                )
+                                .font(Typo.cardTitle)
+                                .foregroundStyle(Palette.ink(scheme))
+                                Text(
+                                    "launchd retries these on every login and they always fail. Safe to remove."
+                                )
+                                .font(Typo.secondary)
+                                .foregroundStyle(Palette.inkSecondary(scheme))
                             }
                             Spacer(minLength: 0)
                         }
@@ -330,7 +352,9 @@ struct ApplicationsView: View {
                 }
 
                 ForEach(model.startupItems) { item in
-                    StartupRow(item: item, isRemoving: model.removingStartupItems.contains(item.id)) { model.removeStartupItem(item) }
+                    StartupRow(item: item, isRemoving: model.removingStartupItems.contains(item.id)) {
+                        model.removeStartupItem(item)
+                    }
                 }
             }
             .padding(.horizontal, 28)
@@ -434,7 +458,8 @@ private struct StartupRow: View {
             HStack(spacing: 12) {
                 GlyphTile(
                     symbol: item.isOrphaned ? "bolt.slash" : "bolt",
-                    tint: item.isOrphaned ? Palette.caution : (item.isApple ? Palette.inkTertiary(scheme) : Palette.info),
+                    tint: item.isOrphaned
+                        ? Palette.caution : (item.isApple ? Palette.inkTertiary(scheme) : Palette.info),
                     size: 30
                 )
 

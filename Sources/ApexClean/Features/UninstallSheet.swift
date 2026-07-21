@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// The uninstall review sheet.
 ///
@@ -71,7 +71,8 @@ struct UninstallSheet: View {
                         symbol: "exclamationmark.triangle.fill",
                         tint: Palette.caution,
                         title: "\(plan.app.name) is running",
-                        detail: "Quit it before uninstalling. Removing a live app's files can leave background helpers behind."
+                        detail:
+                            "Quit it before uninstalling. Removing a live app's files can leave background helpers behind."
                     )
                 }
 
@@ -91,7 +92,8 @@ struct UninstallSheet: View {
                     symbol: "arrow.uturn.backward.circle",
                     tint: Palette.info,
                     title: "Everything goes to the Trash",
-                    detail: "Nothing here is deleted outright. If something turns out to matter, restore it from the Trash."
+                    detail:
+                        "Nothing here is deleted outright. If something turns out to matter, restore it from the Trash."
                 )
 
                 if !plan.unmeasurable.isEmpty {
@@ -99,7 +101,8 @@ struct UninstallSheet: View {
                         symbol: "lock.circle",
                         tint: Palette.caution,
                         title: "\(plan.unmeasurable.count) folders could not be measured",
-                        detail: "macOS keeps sandbox containers and a few other stores private unless ApexClean has Full Disk Access. They are listed and will still be removed — only the size is unknown, so the total above is a floor."
+                        detail:
+                            "macOS keeps sandbox containers and a few other stores private unless ApexClean has Full Disk Access. They are listed and will still be removed — only the size is unknown, so the total above is a floor."
                     )
                 }
             }
@@ -249,10 +252,12 @@ struct UninstallSheet: View {
             Text("Removed \(Bytes.format(outcome.bytesReclaimed))")
                 .font(Typo.metric(22, weight: .bold))
                 .foregroundStyle(Palette.ink(scheme))
-            Text("\(outcome.removed.count) items moved to the Trash"
-                + (outcome.refused.isEmpty ? "" : " · \(outcome.refused.count) refused by safety checks"))
-                .font(Typo.body)
-                .foregroundStyle(Palette.inkSecondary(scheme))
+            Text(
+                "\(outcome.removed.count) items moved to the Trash"
+                    + (outcome.refused.isEmpty ? "" : " · \(outcome.refused.count) refused by safety checks")
+            )
+            .font(Typo.body)
+            .foregroundStyle(Palette.inkSecondary(scheme))
             if !outcome.failed.isEmpty {
                 Text("\(outcome.failed.count) could not be removed — they may need administrator access.")
                     .font(Typo.secondary)
@@ -272,7 +277,9 @@ struct UninstallSheet: View {
             }
             Spacer()
             if model.uninstallOutcome == nil {
-                ApexButton(title: "Cancel", kind: .quiet) { dismiss(); model.dismissPlan() }
+                ApexButton(title: "Cancel", kind: .quiet) {
+                    dismiss(); model.dismissPlan()
+                }
                 ApexButton(
                     title: "Move to Trash",
                     symbol: "trash",
@@ -283,7 +290,9 @@ struct UninstallSheet: View {
                 }
                 .disabled(model.planSelection.isEmpty || model.isUninstalling || plan.app.isRunning)
             } else {
-                ApexButton(title: "Done", kind: .primary) { dismiss(); model.dismissPlan() }
+                ApexButton(title: "Done", kind: .primary) {
+                    dismiss(); model.dismissPlan()
+                }
             }
         }
         .padding(16)

@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 @MainActor
 final class MaintenanceModel: ObservableObject {
@@ -29,8 +29,7 @@ final class MaintenanceModel: ObservableObject {
     var totalFreed: Int64 { results.values.reduce(0) { $0 + $1.bytesFreed } }
 
     func toggle(_ task: MaintenanceTask) {
-        if selection.contains(task.id) { selection.remove(task.id) }
-        else { selection.insert(task.id) }
+        if selection.contains(task.id) { selection.remove(task.id) } else { selection.insert(task.id) }
     }
 
     func run() {

@@ -1,6 +1,6 @@
-import SwiftUI
 import ApexCore
 import AppKit
+import SwiftUI
 
 @MainActor
 final class SpaceModel: ObservableObject {
@@ -239,7 +239,8 @@ final class SpaceModel: ObservableObject {
                 guard let self else { return }
                 self.removing.remove(node.id)
                 guard outcome.removed.contains(url) else {
-                    self.removalError = outcome.refused.first?.reason
+                    self.removalError =
+                        outcome.refused.first?.reason
                         ?? outcome.failed.first?.error
                         ?? "The item could not be moved to the Trash."
                     return
@@ -274,7 +275,8 @@ final class SpaceModel: ObservableObject {
                 guard let self else { return }
                 self.removing.remove(url.path)
                 guard outcome.removed.contains(url) else {
-                    self.removalError = outcome.refused.first?.reason
+                    self.removalError =
+                        outcome.refused.first?.reason
                         ?? outcome.failed.first?.error
                         ?? "The file could not be moved to the Trash."
                     return

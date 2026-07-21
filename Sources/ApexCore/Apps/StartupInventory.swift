@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// Something macOS starts on your behalf.
 public struct StartupItem: Identifiable, Hashable {
@@ -44,11 +44,13 @@ public enum StartupInventory {
         ]
 
         for (root, scope) in roots {
-            guard let contents = try? FileManager.default.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+            guard
+                let contents = try? FileManager.default.contentsOfDirectory(
+                    at: root,
+                    includingPropertiesForKeys: nil,
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
 
             for url in contents where url.pathExtension == "plist" {
                 if let item = describe(url, scope: scope) { items.append(item) }
@@ -63,7 +65,7 @@ public enum StartupInventory {
 
     static func describe(_ url: URL, scope: StartupItem.Scope) -> StartupItem? {
         guard let data = try? Data(contentsOf: url),
-              let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
+            let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         else { return nil }
 
         let label = plist["Label"] as? String ?? url.deletingPathExtension().lastPathComponent
@@ -104,7 +106,8 @@ public enum StartupInventory {
         if let program, program.contains(".app/") {
             let components = program.components(separatedBy: ".app/")
             if let bundlePath = components.first,
-               let name = bundlePath.components(separatedBy: "/").last, !name.isEmpty {
+                let name = bundlePath.components(separatedBy: "/").last, !name.isEmpty
+            {
                 return name
             }
         }
@@ -115,7 +118,8 @@ public enum StartupInventory {
         // Reverse-DNS: the vendor is usually the second component, the product
         // the third. Prefer the product, fall back to the vendor.
         let candidate = parts.count >= 3 ? String(parts[2]) : String(parts[1])
-        let cleaned = candidate
+        let cleaned =
+            candidate
             .replacingOccurrences(of: "-", with: " ")
             .replacingOccurrences(of: "_", with: " ")
         guard !cleaned.isEmpty else { return label }

@@ -110,9 +110,10 @@ public enum LeftoverFinder {
             // data and hiding it would make the uninstall incomplete. Only the
             // size is left unknown.
             if PrivacyAccess.requiresConsent(path) {
-                let exists = Guarded.run(budget: 1) {
-                    FileManager.default.fileExists(atPath: path)
-                } ?? false
+                let exists =
+                    Guarded.run(budget: 1) {
+                        FileManager.default.fileExists(atPath: path)
+                    } ?? false
                 guard exists else { return }
                 found[path] = Leftover(
                     url: url, bytes: 0, kind: kind, evidence: evidence, sizeIsUnknown: true
@@ -226,7 +227,8 @@ public enum LeftoverFinder {
             let lower = name.lowercased().replacingOccurrences(of: " ", with: "")
             if lower.count >= 4, !ambiguousNames.contains(lower) {
                 for relative in ["\(lower)", ".config/\(lower)", ".cache/\(lower)", ".local/share/\(lower)"] {
-                    let candidate = relative.hasPrefix(".")
+                    let candidate =
+                        relative.hasPrefix(".")
                         ? home.appendingPathComponent(relative)
                         : home.appendingPathComponent(".\(relative)")
                     add(candidate, .support, "Dotfile directory matching “\(lower)”")
@@ -262,7 +264,8 @@ public enum LeftoverFinder {
         guard identifier.count >= 5 else { return false }
         let parts = identifier.split(separator: ".")
         guard parts.count >= 2 else { return false }
-        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
+        let allowed = CharacterSet(
+            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
         return identifier.unicodeScalars.allSatisfy { allowed.contains($0) }
     }
 

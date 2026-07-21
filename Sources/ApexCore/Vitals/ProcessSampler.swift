@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 public struct ProcessVitals: Identifiable, Equatable {
     public var id: Int32
@@ -25,9 +25,9 @@ public enum ProcessSampler {
             if results.count >= limit { break }
             let fields = line.split(separator: " ", omittingEmptySubsequences: true)
             guard fields.count >= 4,
-                  let pid = Int32(fields[0]),
-                  let cpu = Double(fields[1]),
-                  let rssKB = Int64(fields[2])
+                let pid = Int32(fields[0]),
+                let cpu = Double(fields[1]),
+                let rssKB = Int64(fields[2])
             else { continue }
 
             let name = fields[3...].joined(separator: " ")
@@ -55,9 +55,9 @@ public enum ProcessSampler {
             if results.count >= limit { break }
             let fields = line.split(separator: " ", omittingEmptySubsequences: true)
             guard fields.count >= 4,
-                  let pid = Int32(fields[0]),
-                  let cpu = Double(fields[1]),
-                  let rssKB = Int64(fields[2])
+                let pid = Int32(fields[0]),
+                let cpu = Double(fields[1]),
+                let rssKB = Int64(fields[2])
             else { continue }
             let name = fields[3...].joined(separator: " ")
             results.append(

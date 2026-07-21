@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 
 public struct StorageVitals: Equatable {
     public var name: String = "Macintosh HD"
@@ -55,16 +55,18 @@ public enum StorageSampler {
             .volumeIsBrowsableKey,
             .volumeIsLocalKey,
         ]
-        guard let volumes = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: keys,
-            options: [.skipHiddenVolumes]
-        ) else { return [sample()] }
+        guard
+            let volumes = FileManager.default.mountedVolumeURLs(
+                includingResourceValuesForKeys: keys,
+                options: [.skipHiddenVolumes]
+            )
+        else { return [sample()] }
 
         return volumes.compactMap { url in
             guard let values = try? url.resourceValues(forKeys: Set(keys)),
-                  values.volumeIsBrowsable == true,
-                  values.volumeIsLocal == true,
-                  let total = values.volumeTotalCapacity, total > 0
+                values.volumeIsBrowsable == true,
+                values.volumeIsLocal == true,
+                let total = values.volumeTotalCapacity, total > 0
             else { return nil }
 
             var vitals = StorageVitals()
@@ -127,12 +129,13 @@ public final class NetworkSampler {
             defer { pointer = current.pointee.ifa_next }
 
             guard let addr = current.pointee.ifa_addr,
-                  addr.pointee.sa_family == UInt8(AF_LINK) else { continue }
+                addr.pointee.sa_family == UInt8(AF_LINK)
+            else { continue }
 
             let name = String(cString: current.pointee.ifa_name)
             // Loopback and virtual interfaces would double-count local traffic.
             guard !name.hasPrefix("lo"), !name.hasPrefix("gif"), !name.hasPrefix("stf"),
-                  !name.hasPrefix("bridge"), !name.hasPrefix("utun"), !name.hasPrefix("awdl")
+                !name.hasPrefix("bridge"), !name.hasPrefix("utun"), !name.hasPrefix("awdl")
             else { continue }
 
             guard let dataPointer = current.pointee.ifa_data else { continue }
