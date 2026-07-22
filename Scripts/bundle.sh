@@ -7,20 +7,38 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${CONFIG:-release}"
-BUILD_DIR="$ROOT/.build/$CONFIG"
 APP="$ROOT/dist/ApexClean.app"
-VERSION="1.0.0"
-BUILD_NUMBER="$(date +%Y%m%d%H%M)"
+VERSION="${VERSION:-1.0.0}"
+BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 
-echo "==> Building ($CONFIG)"
+# Release artefacts must run on both Apple Silicon and Intel. Local builds stay
+# single-arch because a universal build costs roughly twice the compile time.
+UNIVERSAL="${UNIVERSAL:-0}"
+
+# Ad-hoc by default so the script runs with no credentials. CI substitutes a
+# Developer ID for anything that leaves the machine.
+SIGN_IDENTITY="${SIGN_IDENTITY:--}"
+
 cd "$ROOT"
-swift build -c "$CONFIG" --product ApexClean
+if [ "$UNIVERSAL" = "1" ]; then
+    echo "==> Building ($CONFIG, arm64 + x86_64)"
+    swift build -c "$CONFIG" --product ApexClean --arch arm64 --arch x86_64
+    # Universal builds land in a different tree from single-arch ones.
+    CONFIG_DIR="$(tr '[:lower:]' '[:upper:]' <<<"${CONFIG:0:1}")${CONFIG:1}"
+    BINARY="$ROOT/.build/apple/Products/$CONFIG_DIR/ApexClean"
+else
+    echo "==> Building ($CONFIG, host architecture)"
+    swift build -c "$CONFIG" --product ApexClean
+    BINARY="$ROOT/.build/$CONFIG/ApexClean"
+fi
+
+[ -f "$BINARY" ] || { echo "error: no binary at $BINARY" >&2; exit 1; }
 
 echo "==> Assembling bundle"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
-cp "$BUILD_DIR/ApexClean" "$APP/Contents/MacOS/ApexClean"
+cp "$BINARY" "$APP/Contents/MacOS/ApexClean"
 
 # GPL-3.0 requires the license to travel with the binary.
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
@@ -78,15 +96,26 @@ cat > "$ENTITLEMENTS" <<ENT
 </plist>
 ENT
 
-# Ad-hoc signature. A distribution build would substitute a Developer ID here
-# and run notarytool; ad-hoc is enough for local use and keeps the script
-# runnable without credentials.
-echo "==> Signing (ad-hoc)"
-codesign --force --deep --sign - --options runtime \
-    --entitlements "$ENTITLEMENTS" "$APP" 2>/dev/null \
-    || codesign --force --deep --sign - --entitlements "$ENTITLEMENTS" "$APP"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    # Ad-hoc is enough to run locally and keeps the script usable with no
+    # credentials. The runtime flag is best-effort here because older codesign
+    # refuses to pair it with an ad-hoc identity.
+    echo "==> Signing (ad-hoc)"
+    codesign --force --deep --sign - --options runtime \
+        --entitlements "$ENTITLEMENTS" "$APP" 2>/dev/null \
+        || codesign --force --deep --sign - --entitlements "$ENTITLEMENTS" "$APP"
+else
+    # Distribution signing. The hardened runtime and a secure timestamp are both
+    # mandatory for notarisation, so there is no fallback path here — if this
+    # cannot be done properly it must fail rather than ship something unusable.
+    echo "==> Signing (${SIGN_IDENTITY})"
+    codesign --force --deep --sign "$SIGN_IDENTITY" --options runtime --timestamp \
+        --entitlements "$ENTITLEMENTS" "$APP"
+fi
 
-codesign --verify --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
+codesign --verify --deep --strict --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
 
 echo "==> Built $APP"
+echo "    version $VERSION ($BUILD_NUMBER)"
+echo "    architectures: $(lipo -archs "$APP/Contents/MacOS/ApexClean")"
 du -sh "$APP" | sed 's/^/    /'

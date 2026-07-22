@@ -1,0 +1,52 @@
+name: CodeQL
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, so a newly published advisory is found even when the repository
+    # is quiet. Off-peak to avoid the top-of-hour runner queue.
+    - cron: '27 4 * * 1'
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze Swift
+    # Swift analysis requires a macOS toolchain to build against.
+    runs-on: macos-15
+    timeout-minutes: 45
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: swift
+          build-mode: manual
+          # security-and-quality is noisier than the default but this codebase
+          # deletes files, so the extra correctness rules are worth the noise.
+          queries: security-and-quality
+
+      # CodeQL builds the code itself to construct its database. A plain debug
+      # build keeps this well inside the timeout.
+      - name: Build for analysis
+        run: swift build
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:swift

@@ -15,6 +15,11 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 </p>
 
 <p>
+<a href="https://github.com/ShalomObongo/ApexClean/actions/workflows/ci.yml"><img src="https://github.com/ShalomObongo/ApexClean/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://github.com/ShalomObongo/ApexClean/actions/workflows/codeql.yml"><img src="https://github.com/ShalomObongo/ApexClean/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+</p>
+
+<p>
 <img src="https://img.shields.io/badge/macOS-14%2B-2FE0A0?style=for-the-badge&logo=apple&logoColor=FFFFFF&labelColor=11161D" alt="macOS 14+">
 <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-24CFE8?style=for-the-badge&labelColor=11161D" alt="Universal">
 <img src="https://img.shields.io/badge/Swift-5.9%2B-F5B841?style=for-the-badge&logo=swift&logoColor=FFFFFF&labelColor=11161D" alt="Swift 5.9+">
@@ -329,8 +334,13 @@ make run
 | Command | What it does |
 |---|---|
 | `make app` | Build release and assemble `dist/ApexClean.app` |
+| `make universal` | Build a universal bundle for Apple Silicon and Intel |
 | `make run` | Build, assemble and launch |
 | `make test` | Run the test suite |
+| `make coverage` | Run tests and report engine coverage |
+| `make lint` | Check formatting |
+| `make format` | Apply the project formatting style |
+| `make ci` | Run everything CI runs, locally |
 | `make clean` | Remove build products |
 
 `make app` produces a self-contained **6.3 MB** `dist/ApexClean.app`. There is no Xcode
@@ -435,6 +445,65 @@ plan invariants, catalog invariants, treemap layout, health scoring and byte for
 > One caveat worth knowing: `xctest` inherits the terminal's TCC grants, so a scan that
 > would block on a consent dialog inside the app runs fine under test. Permission
 > behaviour must be verified in the bundled app, not in the suite.
+
+<br>
+
+---
+
+## Continuous integration
+
+Every push and pull request runs the full gate. `make ci` runs the same checks
+locally, so a red build is reproducible without guessing at the runner.
+
+| Job | Runner | What it enforces |
+|---|---|---|
+| **Static analysis** | Linux | `actionlint` on the workflows, `shellcheck` on the build scripts |
+| **Formatting** | macOS 15 | `swift format lint --strict` against the checked-in `.swift-format` |
+| **Test** | macOS 14 + 15 | Debug and release build and test — four combinations |
+| **Coverage** | macOS | Engine coverage reported to the job summary, with a floor that fails the build |
+| **Bundle** | macOS 15 | Assembles the real `.app` and asserts what it claims to be |
+| **License compliance** | Linux | GPL-3.0 text, Mole attribution and the corresponding-source link |
+
+The bundle job is the one that earns its keep. Compiling proves very little about
+a shipped application, so it asserts the properties this README promises:
+`lipo` must report **both `arm64` and `x86_64`**, `LSMinimumSystemVersion` must
+still be `14.0`, every TCC usage-description key must be present — macOS kills a
+process that touches a gated resource without one, rather than prompting — the
+signature must verify, the Apple Events entitlement must survive, and the GPL
+`LICENSE` and `NOTICE` must be inside the bundle.
+
+Anything that does not need a Mac toolchain runs on Linux, because macOS runners
+cost ten times the Actions minutes.
+
+<details>
+<summary><b>Releasing</b></summary>
+
+<br>
+
+Pushing a `v*` tag builds a universal bundle, signs it, notarises it, and
+publishes a GitHub Release with a `.zip`, a `.dmg` and `SHA256SUMS.txt`.
+
+Signing is conditional rather than required. With no credentials configured the
+workflow still produces a working ad-hoc build, but it labels the release
+clearly and **forces it to stay a draft** — an unsigned artefact can never
+publish itself and be mistaken for a distributable one.
+
+To sign and notarise properly, set these repository secrets:
+
+| Secret | Value |
+|---|---|
+| `MACOS_CERTIFICATE` | Developer ID Application certificate, `.p12`, base64-encoded |
+| `MACOS_CERTIFICATE_PASSWORD` | Password for that `.p12` |
+| `MACOS_SIGNING_IDENTITY` | e.g. `Developer ID Application: Your Name (TEAMID)` |
+| `NOTARY_APPLE_ID` | Apple ID used for notarisation |
+| `NOTARY_PASSWORD` | App-specific password for that Apple ID |
+| `NOTARY_TEAM_ID` | Your 10-character team ID |
+
+The certificate is imported into an ephemeral keychain that is deleted even if
+the run fails, and archives are built with `ditto` rather than `zip`, which
+preserves the symlinks and signature that a `.app` needs to survive the trip.
+
+</details>
 
 <br>
 

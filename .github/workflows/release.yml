@@ -1,0 +1,269 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g. 1.0.0). Produces a draft release.'
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0  # release notes are generated from history
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+            DRAFT=true
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+            DRAFT=false
+          fi
+
+          # Reject anything that is not a plain semantic version. CFBundleVersion
+          # comparison misbehaves on malformed strings and Sparkle-style updaters
+          # silently mis-order releases.
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::'$VERSION' is not a valid semantic version"
+            exit 1
+          fi
+
+          {
+            echo "version=$VERSION"
+            echo "draft=$DRAFT"
+            echo "tag=v$VERSION"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building version $VERSION"
+
+      - name: Report toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+
+      - name: Run the test suite
+        run: swift test
+
+      # -----------------------------------------------------------------------
+      # Signing is conditional. Without credentials the workflow still produces a
+      # usable ad-hoc build rather than failing, but it labels it clearly so an
+      # unsigned artefact can never be mistaken for a distributable one.
+      # -----------------------------------------------------------------------
+      - name: Detect signing credentials
+        id: creds
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          if [ -n "$CERTIFICATE" ] && [ -n "$CERTIFICATE_PASSWORD" ] && [ -n "$SIGNING_IDENTITY" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No Developer ID configured — producing an ad-hoc build. \
+          Gatekeeper will block it on other Macs. Set MACOS_CERTIFICATE, \
+          MACOS_CERTIFICATE_PASSWORD and MACOS_SIGNING_IDENTITY to sign."
+          fi
+
+          if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
+            echo "notarize=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No notarisation credentials — the artefact will not be notarised."
+          fi
+
+      - name: Import signing certificate
+        if: steps.creds.outputs.sign == 'true'
+        env:
+          CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        run: |
+          # A dedicated, ephemeral keychain. Never touch the runner default.
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          printf '%s' "$CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          # Lets codesign use the key without an interactive prompt.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: Build universal app bundle
+        env:
+          UNIVERSAL: '1'
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_NUMBER: ${{ github.run_number }}
+          SIGN_IDENTITY: ${{ steps.creds.outputs.sign == 'true' && secrets.MACOS_SIGNING_IDENTITY || '-' }}
+        run: make app
+
+      - name: Verify the artifact
+        run: |
+          BIN=dist/ApexClean.app/Contents/MacOS/ApexClean
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "architectures: $ARCHS"
+          for arch in arm64 x86_64; do
+            case "$ARCHS" in
+              *"$arch"*) ;;
+              *) echo "::error::release binary is missing $arch"; exit 1 ;;
+            esac
+          done
+          codesign --verify --deep --strict --verbose=2 dist/ApexClean.app
+
+          ACTUAL="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+            dist/ApexClean.app/Contents/Info.plist)"
+          [ "$ACTUAL" = "${{ steps.version.outputs.version }}" ] \
+            || { echo "::error::bundle version is $ACTUAL, expected ${{ steps.version.outputs.version }}"; exit 1; }
+
+      - name: Notarize and staple
+        if: steps.creds.outputs.sign == 'true' && steps.creds.outputs.notarize == 'true'
+        env:
+          NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
+        run: |
+          # notarytool takes an archive, not a bundle.
+          ditto -c -k --sequesterRsrc --keepParent dist/ApexClean.app "$RUNNER_TEMP/notarize.zip"
+
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$NOTARY_APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$NOTARY_TEAM_ID" \
+            --wait --timeout 30m
+
+          # Stapling lets the app launch on a Mac that is offline.
+          xcrun stapler staple dist/ApexClean.app
+          xcrun stapler validate dist/ApexClean.app
+          spctl --assess --type execute --verbose=4 dist/ApexClean.app
+
+      - name: Package release assets
+        id: package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p artifacts
+
+          # ditto, not zip: it preserves symlinks, resource forks and the
+          # signature. A zip-mangled .app fails Gatekeeper on arrival.
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/ApexClean.app "artifacts/ApexClean-$VERSION-universal.zip"
+
+          hdiutil create -volname "ApexClean $VERSION" \
+            -srcfolder dist/ApexClean.app -ov -format UDZO -quiet \
+            "artifacts/ApexClean-$VERSION-universal.dmg"
+
+          cd artifacts
+          shasum -a 256 ./* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Generate release notes
+        id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          SIGNED: ${{ steps.creds.outputs.sign }}
+          NOTARIZED: ${{ steps.creds.outputs.notarize }}
+        run: |
+          PREVIOUS="$(git tag --sort=-version:refname --list 'v*' \
+            | grep -v "^v$VERSION$" | head -n1 || true)"
+
+          {
+            echo "## ApexClean $VERSION"
+            echo
+            echo "Universal build for Apple Silicon and Intel. Requires macOS 14 or later."
+            echo
+
+            if [ "$SIGNED" != "true" ]; then
+              echo "> [!WARNING]"
+              echo "> This build is **ad-hoc signed and not notarised**. macOS Gatekeeper will"
+              echo "> refuse to open it on another Mac. Build from source with \`make app\`, or"
+              echo "> configure Developer ID signing secrets and re-run the release."
+              echo
+            elif [ "$NOTARIZED" != "true" ]; then
+              echo "> [!WARNING]"
+              echo "> Signed with a Developer ID but **not notarised**. Gatekeeper will warn on"
+              echo "> first launch."
+              echo
+            fi
+
+            echo "### Changes"
+            echo
+            if [ -n "$PREVIOUS" ]; then
+              git log --no-merges --pretty='- %s' "$PREVIOUS..HEAD"
+            else
+              git log --no-merges --pretty='- %s' -n 40
+            fi
+            echo
+            echo "### Verifying your download"
+            echo
+            echo '```sh'
+            echo "shasum -a 256 -c SHA256SUMS.txt"
+            echo '```'
+            echo
+            echo "ApexClean is free software under GPL-3.0, built on [Mole](https://github.com/tw93/mole)."
+          } > release-notes.md
+
+          cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+          TAG: ${{ steps.version.outputs.tag }}
+          DRAFT: ${{ steps.version.outputs.draft }}
+          UNSIGNED: ${{ steps.creds.outputs.sign != 'true' }}
+        run: |
+          ARGS=(--title "ApexClean $VERSION" --notes-file release-notes.md)
+
+          # A manual run, or anything unsigned, stays a draft. Only a tagged and
+          # properly signed build is allowed to publish itself.
+          if [ "$DRAFT" = "true" ] || [ "$UNSIGNED" = "true" ]; then
+            ARGS+=(--draft)
+          fi
+          case "$VERSION" in *-*) ARGS+=(--prerelease) ;; esac
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" artifacts/* --clobber
+          else
+            gh release create "$TAG" artifacts/* "${ARGS[@]}"
+          fi
+
+      - name: Clean up keychain
+        if: always() && steps.creds.outputs.sign == 'true'
+        run: security delete-keychain "$KEYCHAIN" || true
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-artifacts-${{ steps.version.outputs.version }}
+          path: artifacts/
+          retention-days: 90

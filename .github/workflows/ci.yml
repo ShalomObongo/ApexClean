@@ -1,0 +1,289 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch makes the in-flight run redundant. main is
+# exempt so every landed commit keeps a complete, attributable result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  # Region coverage floor for the engine. ApexCore holds every destructive code
+  # path, so this is the number that actually matters; the SwiftUI layer is
+  # deliberately excluded rather than padding the figure.
+  MIN_COVERAGE: 40
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Static checks. Linux runners are ~10x cheaper in Actions minutes than macOS,
+  # so anything that does not need a Mac toolchain runs here.
+  # ---------------------------------------------------------------------------
+  static:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Lint workflow definitions
+        run: |
+          curl -fsSL https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz \
+            | tar xz actionlint
+          ./actionlint -color
+
+      - name: Lint shell scripts
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck --severity=warning --color=always Scripts/*.sh
+
+  # ---------------------------------------------------------------------------
+  # Formatting is enforced, not advised. An advisory formatter that everyone
+  # ignores is worse than none: it trains people to skip a red check.
+  # ---------------------------------------------------------------------------
+  format:
+    name: Formatting
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Report toolchain
+        run: swift --version
+
+      - name: Check formatting
+        run: |
+          if ! swift format lint --version >/dev/null 2>&1; then
+            echo "::error::swift format is unavailable on this toolchain"
+            exit 1
+          fi
+          swift format lint --recursive --strict \
+            --configuration .swift-format Sources Tests
+
+      - name: Explain how to fix
+        if: failure()
+        run: echo "::notice::Run 'make format' locally to apply the project style."
+
+  # ---------------------------------------------------------------------------
+  # Build and test across supported macOS versions. Both runners are Apple
+  # Silicon; Intel support is proven by the universal build in `bundle`.
+  # ---------------------------------------------------------------------------
+  test:
+    name: Test (${{ matrix.os }}, ${{ matrix.configuration }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, macos-15]
+        configuration: [debug, release]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Report toolchain
+        run: |
+          swift --version
+          xcodebuild -version
+          sw_vers
+
+      - name: Cache build products
+        uses: actions/cache@v4
+        with:
+          path: .build
+          key: ${{ matrix.os }}-${{ matrix.configuration }}-spm-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Tests/**/*.swift') }}
+          restore-keys: |
+            ${{ matrix.os }}-${{ matrix.configuration }}-spm-
+
+      - name: Build
+        run: swift build -c ${{ matrix.configuration }} --build-tests
+
+      # Coverage instrumentation is only meaningful on the debug build, and
+      # running the suite twice per OS would double CI time for no signal.
+      - name: Test
+        if: matrix.configuration == 'debug'
+        run: swift test --enable-code-coverage
+
+      - name: Test (release)
+        if: matrix.configuration == 'release'
+        run: swift test -c release
+
+      - name: Coverage
+        if: matrix.configuration == 'debug'
+        run: |
+          BIN="$(swift build --show-bin-path)"
+          PROF="$BIN/codecov/default.profdata"
+          XCTEST="$BIN/ApexCleanPackageTests.xctest/Contents/MacOS/ApexCleanPackageTests"
+          [ -f "$PROF" ] || { echo "::error::no coverage profile at $PROF"; exit 1; }
+
+          # Only ApexCore is measured. It is where every deletion decision lives.
+          xcrun llvm-cov report "$XCTEST" -instr-profile="$PROF" \
+            --ignore-filename-regex='(/Tests/|/\.build/|/Sources/ApexClean/)' \
+            | tee coverage.txt
+
+          PCT="$(awk '/^TOTAL/ { gsub("%","",$4); print int($4) }' coverage.txt)"
+          echo "### Engine coverage: ${PCT}%" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 3 coverage.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$PCT" -lt "$MIN_COVERAGE" ]; then
+            echo "::error::engine coverage ${PCT}% is below the ${MIN_COVERAGE}% floor"
+            exit 1
+          fi
+
+      - name: Upload coverage report
+        if: matrix.configuration == 'debug'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.os }}
+          path: coverage.txt
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # Assemble the real artefact and assert the properties the README promises.
+  # A build that merely compiles proves very little about a shipped .app.
+  # ---------------------------------------------------------------------------
+  bundle:
+    name: Bundle and verify
+    runs-on: macos-15
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build universal app bundle
+        env:
+          UNIVERSAL: '1'
+          VERSION: 0.0.0-ci
+        run: make app
+
+      - name: Verify architectures
+        run: |
+          BIN=dist/ApexClean.app/Contents/MacOS/ApexClean
+          ARCHS="$(lipo -archs "$BIN")"
+          echo "architectures: $ARCHS"
+          # The README promises Apple Silicon and Intel. Assert it, don't assume.
+          for arch in arm64 x86_64; do
+            case "$ARCHS" in
+              *"$arch"*) ;;
+              *) echo "::error::universal binary is missing $arch"; exit 1 ;;
+            esac
+          done
+
+      - name: Verify bundle structure
+        run: |
+          APP=dist/ApexClean.app
+          fail() { echo "::error::$1"; exit 1; }
+
+          for path in \
+            "$APP/Contents/Info.plist" \
+            "$APP/Contents/MacOS/ApexClean" \
+            "$APP/Contents/Resources/AppIcon.icns" \
+            "$APP/Contents/Resources/LICENSE" \
+            "$APP/Contents/Resources/NOTICE"
+          do
+            [ -e "$path" ] || fail "missing $path"
+          done
+
+          plist="$APP/Contents/Info.plist"
+          read_key() { /usr/libexec/PlistBuddy -c "Print :$1" "$plist"; }
+
+          [ "$(read_key CFBundleIdentifier)" = "fit.apexclean.app" ] \
+            || fail "unexpected bundle identifier"
+          [ "$(read_key LSMinimumSystemVersion)" = "14.0" ] \
+            || fail "LSMinimumSystemVersion must stay 14.0"
+
+          # Every TCC-gated capability the app can touch needs a usage string,
+          # or macOS kills the process instead of prompting.
+          for key in \
+            NSDesktopFolderUsageDescription \
+            NSDocumentsFolderUsageDescription \
+            NSDownloadsFolderUsageDescription \
+            NSRemovableVolumesUsageDescription \
+            NSAppleEventsUsageDescription
+          do
+            read_key "$key" >/dev/null 2>&1 || fail "missing $key in Info.plist"
+          done
+
+      - name: Verify signature and entitlements
+        run: |
+          APP=dist/ApexClean.app
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          codesign --display --entitlements - --xml "$APP" > entitlements.xml
+
+          # Emptying the Trash goes through Finder, which the hardened runtime
+          # blocks without this entitlement.
+          grep -q 'com.apple.security.automation.apple-events' entitlements.xml \
+            || { echo "::error::apple-events entitlement is missing"; exit 1; }
+
+      - name: Package artifact
+        run: |
+          # ditto preserves the bundle's symlinks and extended attributes;
+          # zip does not, and a mangled .app is worse than no artefact.
+          ditto -c -k --sequesterRsrc --keepParent \
+            dist/ApexClean.app ApexClean-ci.zip
+          shasum -a 256 ApexClean-ci.zip | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ApexClean-app
+          path: ApexClean-ci.zip
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # GPL-3.0 obligations are a release requirement, so they are checked like one.
+  # ---------------------------------------------------------------------------
+  compliance:
+    name: License compliance
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verify license and attribution
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+
+          [ -f LICENSE ] || fail "LICENSE is missing"
+          [ -f NOTICE ] || fail "NOTICE is missing"
+
+          grep -q "GNU GENERAL PUBLIC LICENSE" LICENSE \
+            || fail "LICENSE is not the GPL text"
+          grep -q "Version 3" LICENSE \
+            || fail "LICENSE is not GPL version 3"
+
+          # Mole's path knowledge is what makes this project possible and its
+          # license is why this one is GPL. Losing the credit is not acceptable.
+          grep -qi "mole" NOTICE || fail "NOTICE no longer credits Mole"
+          grep -qi "mole" README.md || fail "README no longer credits Mole"
+
+          # GPL-3.0 requires the corresponding source to be offered.
+          grep -q "github.com/ShalomObongo/ApexClean" NOTICE \
+            || fail "NOTICE does not point at the corresponding source"
+
+      - name: Verify the bundle ships its license
+        run: |
+          grep -q 'Contents/Resources/LICENSE' Scripts/bundle.sh \
+            || { echo "::error::bundle.sh no longer copies LICENSE into the app"; exit 1; }
+
+  # ---------------------------------------------------------------------------
+  # Single required check for branch protection. Without this, adding a job to
+  # the matrix silently escapes the ruleset.
+  # ---------------------------------------------------------------------------
+  ci:
+    name: CI
+    runs-on: ubuntu-latest
+    needs: [static, format, test, bundle, compliance]
+    if: always()
+    steps:
+      - name: Verify all jobs succeeded
+        run: |
+          echo '${{ toJSON(needs) }}' > needs.json
+          if grep -q '"result": *"\(failure\|cancelled\)"' needs.json; then
+            echo "::error::at least one CI job did not succeed"
+            cat needs.json
+            exit 1
+          fi
+          echo "All CI jobs succeeded."
