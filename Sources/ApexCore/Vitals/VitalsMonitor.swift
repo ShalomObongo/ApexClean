@@ -79,7 +79,11 @@ public final class VitalsMonitor: ObservableObject {
         guard timer == nil else { return }
         sample(force: true)
         let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.sample() }
+            // Bind strongly before the Task. Capturing the weak `self` binding
+            // itself in concurrently-executing code is rejected by Swift 5.9 and
+            // 5.10, which is what ships with macOS 14.
+            guard let self else { return }
+            Task { @MainActor in self.sample() }
         }
         // Common mode keeps the graphs live while a menu or scroll is tracking.
         RunLoop.main.add(timer, forMode: .common)

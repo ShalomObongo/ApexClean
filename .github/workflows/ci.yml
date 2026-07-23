@@ -125,10 +125,12 @@ jobs:
             | tee coverage.txt
 
           PCT="$(awk '/^TOTAL/ { gsub("%","",$4); print int($4) }' coverage.txt)"
-          echo "### Engine coverage: ${PCT}%" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -n 3 coverage.txt >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Engine coverage: ${PCT}%"
+            echo '```'
+            tail -n 3 coverage.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$PCT" -lt "$MIN_COVERAGE" ]; then
             echo "::error::engine coverage ${PCT}% is below the ${MIN_COVERAGE}% floor"
