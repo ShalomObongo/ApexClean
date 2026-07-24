@@ -99,7 +99,15 @@ jobs:
             ${{ matrix.os }}-${{ matrix.configuration }}-spm-
 
       - name: Build
-        run: swift build -c ${{ matrix.configuration }} --build-tests
+        run: |
+          if [ "${{ matrix.configuration }}" = "release" ]; then
+            # The tests use @testable, which needs -enable-testing. Release
+            # configuration does not set it, so building the test targets in
+            # release fails without it.
+            swift build -c release --build-tests -Xswiftc -enable-testing
+          else
+            swift build -c debug --build-tests
+          fi
 
       # Coverage instrumentation is only meaningful on the debug build, and
       # running the suite twice per OS would double CI time for no signal.
@@ -107,9 +115,12 @@ jobs:
         if: matrix.configuration == 'debug'
         run: swift test --enable-code-coverage
 
+      # Optimised builds have caught problems debug builds did not. The tests use
+      # @testable, which needs -enable-testing; release configuration does not
+      # set it on its own.
       - name: Test (release)
         if: matrix.configuration == 'release'
-        run: swift test -c release
+        run: swift test -c release -Xswiftc -enable-testing
 
       - name: Coverage
         if: matrix.configuration == 'debug'
