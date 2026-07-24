@@ -28,8 +28,17 @@ final class CleanupModel: ObservableObject {
     @Published var enabledCategories: Set<CleanupCategory> = Set(CleanupCategory.allCases)
     @Published var focusedCategory: String?
     /// Off by default: including Downloads and Desktop makes macOS ask for
-    /// consent, and an automatic scan is the wrong moment to ask.
-    @Published var includesProtectedLocations = false
+    /// consent, and an automatic scan is the wrong moment to ask. Persisted, so
+    /// opting in is a decision made once rather than every launch.
+    @Published var includesProtectedLocations = false {
+        didSet {
+            // The guard is what stops the sync below from bouncing: `didSet`
+            // fires on every assignment, including one that changes nothing.
+            guard oldValue != includesProtectedLocations else { return }
+            Settings.includesPersonalFolders = includesProtectedLocations
+            NotificationCenter.default.post(name: .privacyScopeDidChange, object: nil)
+        }
+    }
     @Published private(set) var protectedScopesGranted: Set<String> = []
     /// Emptying the Trash is offered alongside a cleanup but never folded into
     /// it. Everything ApexClean removes goes *to* the Trash, so emptying in the
@@ -262,7 +271,13 @@ final class CleanupModel: ObservableObject {
             var outcome = remover.remove(
                 urls,
                 disposal: permanent ? .delete : .trash,
-                allowUserRoots: permanent,
+                // Never relaxed for a catalog-driven clean. This used to be
+                // `allowUserRoots: permanent`, which quietly turned the
+                // "delete instead of using the Trash" checkbox into "and also
+                // stop protecting Documents, Desktop, Keychains and .ssh" —
+                // the one moment those guards matter most, since there is no
+                // Trash to recover from.
+                allowUserRoots: false,
                 knownSizes: knownSizes
             )
             // Deliberately last. Emptying first would leave this pass's own

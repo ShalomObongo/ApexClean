@@ -351,9 +351,6 @@ public enum CleanupCatalog {
             ("Cargo git cache", "~/.cargo/git/*"),
             ("Rustup downloads", "~/.rustup/downloads/*"),
             ("Go module cache", "~/Library/Caches/go-build/*"),
-            ("Gradle build cache", "~/.gradle/caches/build-cache-*/*"),
-            ("Gradle daemon", "~/.gradle/daemon/*"),
-            ("Maven repository", "~/.m2/repository/*"),
             ("Ivy cache", "~/.ivy2/cache/*"),
             ("SBT boot cache", "~/.sbt/boot/*"),
             ("Composer cache", "~/Library/Caches/composer/*"),
@@ -387,7 +384,6 @@ public enum CleanupCatalog {
             ("Electron cache", "~/.cache/electron/*"),
             ("Electron builder cache", "~/Library/Caches/electron-builder/*"),
             ("Puppeteer browsers", "~/.cache/puppeteer/*"),
-            ("Playwright browsers", "~/Library/Caches/ms-playwright/*"),
             ("Cypress binaries", "~/Library/Caches/Cypress/*"),
             ("Pytest cache", "~/.pytest_cache/*"),
             ("MyPy cache", "~/.cache/mypy/*"),
@@ -412,9 +408,6 @@ public enum CleanupCatalog {
                 "Xcode derived data", "~/Library/Developer/Xcode/DerivedData/*", .developerJunk,
                 risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
-                "Xcode archives", "~/Library/Developer/Xcode/Archives/*", .developerJunk, risk: .noticeable,
-                minimumAgeDays: 90),
-            CleanupRule(
                 "Xcode build products", "~/Library/Developer/Xcode/Products/*", .developerJunk,
                 risk: .rebuildCost),
             CleanupRule(
@@ -437,8 +430,6 @@ public enum CleanupCatalog {
             CleanupRule(
                 "Android Studio cache", "~/Library/Caches/Google/AndroidStudio*/*", .developerJunk,
                 risk: .rebuildCost),
-            CleanupRule(
-                "JetBrains caches", "~/Library/Caches/JetBrains/*", .developerJunk, risk: .rebuildCost),
             CleanupRule("Expo caches", "~/.expo/*-cache/*", .developerJunk, risk: .rebuildCost),
             CleanupRule("Vagrant temporary files", "~/.vagrant.d/tmp/*", .developerJunk),
             CleanupRule("Jupyter runtime cache", "~/.jupyter/runtime/*", .developerJunk),
@@ -459,7 +450,6 @@ public enum CleanupCatalog {
 
     static var aiTools: [CleanupRule] {
         [
-            CleanupRule("Hugging Face cache", "~/.cache/huggingface/*", .aiTools, risk: .rebuildCost),
             CleanupRule("PyTorch model cache", "~/.cache/torch/*", .aiTools, risk: .rebuildCost),
             CleanupRule("TensorFlow cache", "~/.cache/tensorflow/*", .aiTools, risk: .rebuildCost),
             CleanupRule("Weights & Biases cache", "~/.cache/wandb/*", .aiTools),
@@ -494,19 +484,8 @@ public enum CleanupCatalog {
     static var installers: [CleanupRule] {
         [
             CleanupRule(
-                "Downloaded disk images", "~/Downloads/*.dmg", .installers, risk: .noticeable,
-                minimumAgeDays: 14),
-            CleanupRule(
-                "Downloaded packages", "~/Downloads/*.pkg", .installers, risk: .noticeable, minimumAgeDays: 14
-            ),
-            CleanupRule(
-                "Downloaded installers", "~/Downloads/*.mpkg", .installers, risk: .noticeable,
-                minimumAgeDays: 14),
-            CleanupRule(
-                "Desktop disk images", "~/Desktop/*.dmg", .installers, risk: .noticeable, minimumAgeDays: 14),
-            CleanupRule(
                 "Homebrew cask downloads", "~/Library/Caches/Homebrew/Cask/*", .installers, risk: .rebuildCost
-            ),
+            )
         ]
     }
 }

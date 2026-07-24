@@ -85,15 +85,32 @@ final class BytesFormattingTests: XCTestCase {
     func testFormatsAcrossMagnitudes() {
         XCTAssertEqual(Bytes.format(0), "0 B")
         XCTAssertEqual(Bytes.format(512), "512 B")
-        XCTAssertEqual(Bytes.format(1024), "1.00 KB")
-        XCTAssertEqual(Bytes.format(1024 * 1024), "1.00 MB")
-        XCTAssertEqual(Bytes.format(1024 * 1024 * 1024), "1.00 GB")
+        XCTAssertEqual(Bytes.format(1_000), "1.00 KB")
+        XCTAssertEqual(Bytes.format(1_000_000), "1.00 MB")
+        XCTAssertEqual(Bytes.format(1_000_000_000), "1.00 GB")
+    }
+
+    /// Decimal units, so the figures reconcile with Finder and Disk Utility.
+    func testUsesDecimalUnitsLikeMacOS() {
+        // What Finder calls a 500 GB disk.
+        XCTAssertEqual(Bytes.format(500_000_000_000), "500 GB")
+        // A gibibyte is not a gigabyte, and must not be printed as one.
+        XCTAssertEqual(Bytes.format(1 << 30), "1.07 GB")
+    }
+
+    /// The boundary used to fall through a gap: values from 1000 to 1023 were
+    /// past the "print as bytes" cutoff but still divided by 1024, so 1000 B
+    /// rendered as "0.98 KB".
+    func testBoundaryBetweenBytesAndKilobytes() {
+        XCTAssertEqual(Bytes.format(999), "999 B")
+        XCTAssertEqual(Bytes.format(1_000), "1.00 KB")
+        XCTAssertEqual(Bytes.format(1_023), "1.02 KB")
     }
 
     func testPrecisionDropsAsMagnitudeGrows() {
-        XCTAssertEqual(Bytes.format(1_500 * 1024), "1.46 MB")
-        XCTAssertEqual(Bytes.format(15_000 * 1024), "14.6 MB")
-        XCTAssertEqual(Bytes.format(150_000 * 1024), "146 MB")
+        XCTAssertEqual(Bytes.format(1_500_000), "1.50 MB")
+        XCTAssertEqual(Bytes.format(15_000_000), "15.0 MB")
+        XCTAssertEqual(Bytes.format(150_000_000), "150 MB")
     }
 
     func testNegativeValuesClampToZero() {
@@ -101,8 +118,54 @@ final class BytesFormattingTests: XCTestCase {
     }
 
     func testPartsSplitValueAndUnit() {
-        let parts = Bytes.parts(1024 * 1024)
+        let parts = Bytes.parts(1_000_000)
         XCTAssertEqual(parts.value, "1.00")
         XCTAssertEqual(parts.unit, "MB")
+    }
+}
+
+/// Paths that must never appear in the catalog.
+///
+/// Each of these was in it at some point and each is either irreplaceable or
+/// enormously expensive to regenerate. Mole protects every one of them — most
+/// through its default whitelist, Xcode Archives by only ever reporting them.
+extension CleanupCatalogTests {
+    func testCatalogExcludesIrreplaceableAndProtectedPaths() {
+        let forbidden = [
+            // dSYMs for shipped builds. Once gone, crash reports from that
+            // release can never be symbolicated again.
+            "~/Library/Developer/Xcode/Archives",
+            // Model weights and browser binaries — hours of re-download.
+            "~/.cache/huggingface",
+            "~/Library/Caches/ms-playwright",
+            // Can hold locally-installed artifacts that exist nowhere else.
+            "~/.m2/repository",
+            "~/.gradle/daemon",
+            "~/.gradle/caches/build-cache",
+            "~/Library/Caches/JetBrains",
+        ]
+
+        for path in forbidden {
+            let matches = CleanupCatalog.all.filter { $0.pattern.hasPrefix(path) }
+            XCTAssertTrue(
+                matches.isEmpty,
+                "\(path) is protected by Mole and must not be cleaned — found \(matches.map(\.title))"
+            )
+        }
+    }
+
+    /// Downloads and Desktop are where people keep things, not just where
+    /// installers land. Mole only ever removes partial downloads there.
+    func testCatalogDoesNotDeleteUserFilesFromDownloadsOrDesktop() {
+        let allowedSuffixes = [".download", ".crdownload", ".part"]
+
+        for rule in CleanupCatalog.all {
+            for root in ["~/Downloads/", "~/Desktop/"] where rule.pattern.hasPrefix(root) {
+                XCTAssertTrue(
+                    allowedSuffixes.contains { rule.pattern.hasSuffix($0) },
+                    "“\(rule.title)” (\(rule.pattern)) removes user files from \(root)"
+                )
+            }
+        }
     }
 }

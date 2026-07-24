@@ -114,7 +114,7 @@ that macOS keeps the Trash private unless the app has Full Disk Access.
 
 <br>
 
-### Cleanup — 428 rules, every path inspectable
+### Cleanup — 417 rules, every path inspectable
 
 <div align="center">
 <img src="docs/images/cleanup.webp" width="820" alt="The Cleanup screen: category chips, expandable groups, per-path sizes and a running selection total">
@@ -129,9 +129,9 @@ rather than whole application-support trees.
 
 | Category | Rules | | Category | Rules |
 |---|---:|:---:|---|---:|
-| Application caches | 154 | | AI tooling | 20 |
+| Application caches | 154 | | AI tooling | 19 |
 | Browser data | 136 | | System junk | 18 |
-| Developer artifacts | 80 | | Logs · installers · leftovers · Trash | 20 |
+| Developer artifacts | 74 | | Logs · installers · leftovers · Trash | 16 |
 
 </div>
 
@@ -395,7 +395,7 @@ Sources/
 ├── ApexCore/                  Engine. Zero UI, fully testable.
 │   ├── Support/               Byte formatting, bounded shell, Guarded, allocated size
 │   ├── Safety/                PathGuard, PrivacyAccess, Remover
-│   ├── Cleanup/               CleanupCatalog (428 rules), CleanupScanner, Glob
+│   ├── Cleanup/               CleanupCatalog (417 rules), CleanupScanner, Glob
 │   ├── Apps/                  AppInventory, LeftoverFinder, StartupInventory
 │   ├── Maintenance/           MaintenanceCatalog + runner
 │   ├── Disk/                  SpaceScanner, LargeFileFinder, Treemap
