@@ -6,13 +6,41 @@ public struct Leftover: Identifiable, Hashable {
     public let url: URL
     public let bytes: Int64
     public let kind: Kind
-    /// Why we think this belongs to the app. Shown verbatim in review, because
-    /// "trust me" is not an acceptable justification for deleting someone's data.
+    /// Why this path is believed to belong to the app. Shown verbatim in review,
+    /// because "trust me" is not an acceptable justification for deleting
+    /// someone's data.
     public let evidence: String
+    /// How strong that evidence actually is.
+    ///
+    /// This exists so the review can preselect on the *strength* of a match
+    /// rather than by pattern-matching the evidence sentence, which silently
+    /// preselected shared vendor directories.
+    public var confidence: Confidence = .derivedName
     /// True when macOS would not let us read the path to size it. The item is
     /// still real and still belongs to the app — only the number is missing,
     /// and saying so is better than printing a confident zero.
     public var sizeIsUnknown: Bool = false
+
+    public enum Confidence: String, Sendable {
+        /// The path is named for the app's bundle identifier, which is unique
+        /// to this vendor's app by construction.
+        case bundleIdentifier
+        /// The path carries the app's full name.
+        case exactName
+        /// The path matches a name derived from the app's — a base name, or a
+        /// lowercase dotfile form. Plausible, but it can belong to a sibling
+        /// product, so it is never preselected.
+        case derivedName
+
+        /// Whether a match this strong may be ticked before the user has looked
+        /// at it. Anything weaker is listed but left for them to decide.
+        public var isSafeToPreselect: Bool {
+            switch self {
+            case .bundleIdentifier, .exactName: true
+            case .derivedName: false
+            }
+        }
+    }
 
     public enum Kind: String, CaseIterable {
         case support = "Application Support"
@@ -95,7 +123,12 @@ public enum LeftoverFinder {
         let name = app.name
         let nameIsUsable = name.count >= 4 && !ambiguousNames.contains(name.lowercased())
 
-        func add(_ url: URL, _ kind: Leftover.Kind, _ evidence: String) {
+        func add(
+            _ url: URL,
+            _ kind: Leftover.Kind,
+            _ evidence: String,
+            _ confidence: Leftover.Confidence = .derivedName
+        ) {
             let path = url.standardizedFileURL.path
             guard found[path] == nil else { return }
             guard PathGuard.evaluate(url).isAllowed else { return }
@@ -116,7 +149,12 @@ public enum LeftoverFinder {
                     } ?? false
                 guard exists else { return }
                 found[path] = Leftover(
-                    url: url, bytes: 0, kind: kind, evidence: evidence, sizeIsUnknown: true
+                    url: url,
+                    bytes: 0,
+                    kind: kind,
+                    evidence: evidence,
+                    confidence: confidence,
+                    sizeIsUnknown: true
                 )
                 return
             }
@@ -128,6 +166,7 @@ public enum LeftoverFinder {
                 bytes: measured ?? 0,
                 kind: kind,
                 evidence: evidence,
+                confidence: confidence,
                 sizeIsUnknown: measured == nil
             )
         }
@@ -156,24 +195,24 @@ public enum LeftoverFinder {
                 ("Library/Caches/com.apple.nsurlsessiond/Downloads/\(bundleID)", .caches),
             ]
             for (relative, kind) in byID {
-                add(home.appendingPathComponent(relative), kind, evidence)
+                add(home.appendingPathComponent(relative), kind, evidence, .bundleIdentifier)
             }
 
             // Group containers and per-host preferences use the identifier as a
             // prefix; require a dot boundary so "com.foo" cannot match "com.foobar".
             scanDirectory(home.appendingPathComponent("Library/Group Containers")) { url in
                 if hasBundleBoundary(url.lastPathComponent, bundleID) {
-                    add(url, .containers, "Group container for \(bundleID)")
+                    add(url, .containers, "Group container for \(bundleID)", .bundleIdentifier)
                 }
             }
             scanDirectory(home.appendingPathComponent("Library/Preferences/ByHost")) { url in
                 if hasBundleBoundary(url.lastPathComponent, bundleID) {
-                    add(url, .preferences, "Per-host preferences for \(bundleID)")
+                    add(url, .preferences, "Per-host preferences for \(bundleID)", .bundleIdentifier)
                 }
             }
             scanDirectory(home.appendingPathComponent("Library/Containers")) { url in
                 if hasBundleBoundary(url.lastPathComponent, bundleID) {
-                    add(url, .containers, "Sandbox container derived from \(bundleID)")
+                    add(url, .containers, "Sandbox container derived from \(bundleID)", .bundleIdentifier)
                 }
             }
 
@@ -188,7 +227,7 @@ public enum LeftoverFinder {
                     guard file.hasSuffix(".plist") else { return }
                     let label = String(file.dropLast(6))
                     if label == bundleID || label.hasPrefix(bundleID + ".") {
-                        add(url, .launchAgents, "Launch agent labelled \(label)")
+                        add(url, .launchAgents, "Launch agent labelled \(label)", .bundleIdentifier)
                     }
                 }
             }
@@ -200,6 +239,11 @@ public enum LeftoverFinder {
             let variants = nameVariants(name)
             for variant in variants {
                 let evidence = "Directory named “\(variant)”"
+                // A variant that still carries the app's whole name is a solid
+                // match. A shortened one is not: "Microsoft Word" reduced to
+                // "Microsoft" names a directory four other Office apps share.
+                let confidence: Leftover.Confidence =
+                    variant.count >= name.count ? .exactName : .derivedName
                 let byName: [(String, Leftover.Kind)] = [
                     ("Library/Application Support/\(variant)", .support),
                     ("Library/Caches/\(variant)", .caches),
@@ -218,7 +262,7 @@ public enum LeftoverFinder {
                     ("Library/Contextual Menu Items/\(variant).plugin", .plugins),
                 ]
                 for (relative, kind) in byName {
-                    add(home.appendingPathComponent(relative), kind, evidence)
+                    add(home.appendingPathComponent(relative), kind, evidence, confidence)
                 }
             }
 
@@ -287,6 +331,16 @@ public enum LeftoverFinder {
         return remainder.isEmpty || remainder.hasPrefix(".")
     }
 
+    /// Release-channel suffixes vendors append to the same product's name.
+    ///
+    /// Stripping one of these is safe because the base name still identifies the
+    /// same application from the same vendor — "Zed Nightly" really does keep
+    /// data under "Zed".
+    static let channelSuffixes = [
+        "Nightly", "Beta", "Alpha", "Dev", "Canary", "Preview", "Insiders", "Insider",
+        "Edge", "Stable", "Release", "RC", "LTS", "Developer Edition", "Technology Preview",
+    ]
+
     static func nameVariants(_ name: String) -> [String] {
         var variants = [name]
         if name.contains(" ") {
@@ -294,10 +348,28 @@ public enum LeftoverFinder {
             variants.append(name.replacingOccurrences(of: " ", with: "-"))
             variants.append(name.replacingOccurrences(of: " ", with: "_"))
         }
-        // "Zed Nightly" also owns data under "Zed".
-        if let first = name.split(separator: " ").first, first.count >= 4 {
-            variants.append(String(first))
+
+        // Only a known release-channel suffix may be dropped.
+        //
+        // This used to take the first word of any multi-word name, which turned
+        // "Microsoft Word" into "Microsoft" and pointed the uninstaller at
+        // ~/Library/Caches/Microsoft — shared by Excel, Outlook, OneNote and
+        // Teams. Uninstalling one Office app would have taken the others' data
+        // with it. A vendor name is not an application name.
+        for suffix in channelSuffixes {
+            let tail = " " + suffix
+            guard name.lowercased().hasSuffix(tail.lowercased()) else { continue }
+            let base = String(name.dropLast(tail.count))
+                .trimmingCharacters(in: .whitespaces)
+            guard base.count >= 3 else { break }
+            variants.append(base)
+            if base.contains(" ") {
+                variants.append(base.replacingOccurrences(of: " ", with: ""))
+                variants.append(base.replacingOccurrences(of: " ", with: "-"))
+            }
+            break
         }
+
         return Array(Set(variants))
     }
 

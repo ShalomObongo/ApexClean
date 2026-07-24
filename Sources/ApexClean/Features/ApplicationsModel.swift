@@ -145,11 +145,16 @@ final class ApplicationsModel: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.plan = plan
-                // Preselect the bundle and every leftover we can name concrete
-                // bundle-identifier evidence for. Name-only matches start off.
+                // Preselect only matches strong enough to justify deleting
+                // without being looked at: the app's own bundle, and paths named
+                // for its bundle identifier or its full name.
+                //
+                // This used to preselect anything that was not Application
+                // Support, which meant a directory matched on a shortened name —
+                // Caches/Microsoft, Logs/Adobe — arrived already ticked.
                 self.planSelection = Set(
                     plan.leftovers
-                        .filter { $0.evidence.contains("bundle identifier") || $0.kind != .support }
+                        .filter { $0.confidence.isSafeToPreselect }
                         .map(\.id)
                 )
                 self.planSelection.insert(plan.bundle.path)

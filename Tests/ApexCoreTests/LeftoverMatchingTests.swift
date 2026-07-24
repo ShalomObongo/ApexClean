@@ -52,7 +52,70 @@ final class LeftoverMatchingTests: XCTestCase {
         XCTAssertTrue(variants.contains("MaestroStudio"))
         XCTAssertTrue(variants.contains("Maestro-Studio"))
         XCTAssertTrue(variants.contains("Maestro_Studio"))
-        XCTAssertTrue(variants.contains("Maestro"), "Base name should be covered for versioned apps")
+        // "Studio" is part of the product name, not a release channel, so the
+        // bare first word must not be derived. This assertion used to be
+        // inverted, which is how the shared-vendor sweep shipped.
+        XCTAssertFalse(
+            variants.contains("Maestro"),
+            "a bare first word is a vendor or family name, not an app name"
+        )
+    }
+
+    /// The bug this guards against: any multi-word name yielded its first word,
+    /// so uninstalling one app offered to delete a directory its siblings share.
+    func testVendorPrefixesAreNeverDerivedFromMultiWordNames() {
+        let cases: [(app: String, forbidden: String)] = [
+            ("Microsoft Word", "Microsoft"),
+            ("Microsoft Excel", "Microsoft"),
+            ("Adobe Acrobat Reader DC", "Adobe"),
+            ("Google Chrome", "Google"),
+            ("Affinity Photo 2", "Affinity"),
+            ("Elgato Stream Deck", "Elgato"),
+            ("Logitech Options Plus", "Logitech"),
+        ]
+        for (app, forbidden) in cases {
+            let variants = Set(LeftoverFinder.nameVariants(app))
+            XCTAssertFalse(
+                variants.contains(forbidden),
+                "\(app) must not claim the shared “\(forbidden)” directory"
+            )
+            XCTAssertTrue(variants.contains(app), "\(app) should still match its own name")
+        }
+    }
+
+    /// Known release channels are still stripped, because those really are the
+    /// same application writing to the same place.
+    func testReleaseChannelSuffixesStillResolveToTheBaseName() {
+        for (app, base) in [
+            ("Zed Nightly", "Zed"),
+            ("Visual Studio Code Insiders", "Visual Studio Code"),
+            ("Firefox Developer Edition", "Firefox"),
+            ("Chromium Canary", "Chromium"),
+        ] {
+            let variants = Set(LeftoverFinder.nameVariants(app))
+            XCTAssertTrue(variants.contains(base), "\(app) should also cover “\(base)”")
+        }
+    }
+
+    /// Only strong matches may arrive pre-ticked. A weak one is still listed —
+    /// it is just the user's decision rather than the app's.
+    func testOnlyStrongMatchesArePreselectable() {
+        XCTAssertTrue(Leftover.Confidence.bundleIdentifier.isSafeToPreselect)
+        XCTAssertTrue(Leftover.Confidence.exactName.isSafeToPreselect)
+        XCTAssertFalse(Leftover.Confidence.derivedName.isSafeToPreselect)
+    }
+
+    /// Confidence defaults to the cautious value, so a future call site that
+    /// forgets to pass one cannot accidentally preselect.
+    func testConfidenceDefaultsToTheCautiousValue() {
+        let leftover = Leftover(
+            url: URL(fileURLWithPath: "/tmp/example"),
+            bytes: 0,
+            kind: .support,
+            evidence: "test"
+        )
+        XCTAssertEqual(leftover.confidence, .derivedName)
+        XCTAssertFalse(leftover.confidence.isSafeToPreselect)
     }
 
     func testSingleWordNamesProduceNoSpuriousVariants() {
