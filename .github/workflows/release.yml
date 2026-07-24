@@ -81,9 +81,9 @@ jobs:
             echo "sign=true" >> "$GITHUB_OUTPUT"
           else
             echo "sign=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::No Developer ID configured — producing an ad-hoc build. \
-          Gatekeeper will block it on other Macs. Set MACOS_CERTIFICATE, \
-          MACOS_CERTIFICATE_PASSWORD and MACOS_SIGNING_IDENTITY to sign."
+            echo "::notice::No Developer ID configured — building ad-hoc signed. \
+          The release will ship with first-launch instructions. Notarisation needs a \
+          paid Apple Developer Program membership."
           fi
 
           if [ -n "$NOTARY_APPLE_ID" ] && [ -n "$NOTARY_PASSWORD" ] && [ -n "$NOTARY_TEAM_ID" ]; then
@@ -170,6 +170,7 @@ jobs:
         id: package
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          SIGNED: ${{ steps.creds.outputs.sign }}
         run: |
           mkdir -p artifacts
 
@@ -178,13 +179,76 @@ jobs:
           ditto -c -k --sequesterRsrc --keepParent \
             dist/ApexClean.app "artifacts/ApexClean-$VERSION-universal.zip"
 
+          # A drag-to-Applications installer rather than a bare disk image.
+          STAGING="$RUNNER_TEMP/dmg"
+          rm -rf "$STAGING" && mkdir -p "$STAGING"
+          ditto dist/ApexClean.app "$STAGING/ApexClean.app"
+          ln -s /Applications "$STAGING/Applications"
+
+          # Without notarisation the first launch is blocked, and since macOS 15
+          # the old right-click-Open bypass no longer works. Ship the current
+          # instructions where they are needed, not only in the release notes.
+          if [ "$SIGNED" != "true" ]; then
+            cat > "$STAGING/READ ME FIRST.txt" <<'TXT'
+          Opening ApexClean the first time
+          ================================
+
+          This build is not notarised by Apple, so macOS blocks it on first
+          launch. This is expected. Notarisation requires a paid Apple Developer
+          Program membership; ApexClean is free software and does not have one.
+
+          To open it:
+
+            1. Drag ApexClean to Applications.
+            2. Double-click it. macOS will say it cannot verify the developer.
+               Click Done.
+            3. Open System Settings > Privacy & Security.
+            4. Scroll to Security. Next to "ApexClean was blocked", click
+               Open Anyway, then confirm.
+
+          You only need to do this once.
+
+          Note: on macOS 15 and later, right-click > Open no longer works. The
+          Privacy & Security route above is the current one.
+
+          Prefer the terminal? This does the same thing:
+
+            xattr -dr com.apple.quarantine /Applications/ApexClean.app
+
+          Or skip all of it and build from source, which is never quarantined:
+
+            git clone https://github.com/ShalomObongo/ApexClean.git
+            cd ApexClean && make app
+          TXT
+          fi
+
           hdiutil create -volname "ApexClean $VERSION" \
-            -srcfolder dist/ApexClean.app -ov -format UDZO -quiet \
+            -srcfolder "$STAGING" -ov -format UDZO -quiet \
             "artifacts/ApexClean-$VERSION-universal.dmg"
 
           cd artifacts
           shasum -a 256 ./* > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      # A disk image that will not mount, or that carries a broken bundle, is
+      # worse than no release at all — so open it and look.
+      - name: Verify the disk image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          MOUNT="$RUNNER_TEMP/verify"
+          mkdir -p "$MOUNT"
+          hdiutil attach "artifacts/ApexClean-$VERSION-universal.dmg" \
+            -mountpoint "$MOUNT" -nobrowse -quiet
+
+          trap 'hdiutil detach "$MOUNT" -quiet || true' EXIT
+
+          [ -d "$MOUNT/ApexClean.app" ] || { echo "::error::no app in the disk image"; exit 1; }
+          [ -L "$MOUNT/Applications" ] || { echo "::error::no Applications shortcut"; exit 1; }
+
+          codesign --verify --deep --strict "$MOUNT/ApexClean.app"
+          lipo -archs "$MOUNT/ApexClean.app/Contents/MacOS/ApexClean"
+          echo "Disk image verified."
 
       - name: Generate release notes
         id: notes
@@ -201,12 +265,31 @@ jobs:
             echo
             echo "Universal build for Apple Silicon and Intel. Requires macOS 14 or later."
             echo
+            echo "**[ApexClean-$VERSION-universal.dmg](https://github.com/${{ github.repository }}/releases/download/v$VERSION/ApexClean-$VERSION-universal.dmg)** — open it and drag ApexClean to Applications."
+            echo
 
             if [ "$SIGNED" != "true" ]; then
-              echo "> [!WARNING]"
-              echo "> This build is **ad-hoc signed and not notarised**. macOS Gatekeeper will"
-              echo "> refuse to open it on another Mac. Build from source with \`make app\`, or"
-              echo "> configure Developer ID signing secrets and re-run the release."
+              echo "### First launch"
+              echo
+              echo "This build is **not notarised**, so macOS blocks it the first time."
+              echo "Notarisation requires a paid Apple Developer Program membership;"
+              echo "ApexClean is free software and does not have one. The app is ad-hoc"
+              echo "signed, so its contents are still tamper-evident."
+              echo
+              echo "1. Double-click ApexClean. macOS says it cannot verify the developer — click **Done**."
+              echo "2. Open **System Settings → Privacy & Security**."
+              echo "3. Scroll to **Security**, and next to \"ApexClean was blocked\" click **Open Anyway**."
+              echo
+              echo "Once only. On macOS 15 and later, right-click → Open no longer works —"
+              echo "the Privacy & Security route above is the current one."
+              echo
+              echo "Or from the terminal:"
+              echo
+              echo '```sh'
+              echo "xattr -dr com.apple.quarantine /Applications/ApexClean.app"
+              echo '```'
+              echo
+              echo "Or build from source, which is never quarantined: \`make app\`."
               echo
             elif [ "$NOTARIZED" != "true" ]; then
               echo "> [!WARNING]"
@@ -240,13 +323,13 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
           TAG: ${{ steps.version.outputs.tag }}
           DRAFT: ${{ steps.version.outputs.draft }}
-          UNSIGNED: ${{ steps.creds.outputs.sign != 'true' }}
         run: |
           ARGS=(--title "ApexClean $VERSION" --notes-file release-notes.md)
 
-          # A manual run, or anything unsigned, stays a draft. Only a tagged and
-          # properly signed build is allowed to publish itself.
-          if [ "$DRAFT" = "true" ] || [ "$UNSIGNED" = "true" ]; then
+          # Pushing a tag is the deliberate act, so a tagged build publishes even
+          # when it is unsigned — the notes say plainly what that means. Manual
+          # dispatch runs stay drafts so the pipeline can be exercised safely.
+          if [ "$DRAFT" = "true" ]; then
             ARGS+=(--draft)
           fi
           case "$VERSION" in *-*) ARGS+=(--prerelease) ;; esac

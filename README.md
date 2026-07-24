@@ -35,7 +35,7 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 &nbsp;·&nbsp;
 <a href="#privacy"><b>Privacy</b></a>
 &nbsp;·&nbsp;
-<a href="#build-and-run"><b>Install</b></a>
+<a href="#install"><b>Install</b></a>
 &nbsp;·&nbsp;
 <a href="#architecture"><b>Architecture</b></a>
 &nbsp;·&nbsp;
@@ -321,6 +321,33 @@ under a bounded budget, so a pathological path can cost you a folder but never t
 
 ---
 
+## Install
+
+Download the latest **[`.dmg`](https://github.com/ShalomObongo/ApexClean/releases/latest)**,
+open it, and drag ApexClean to Applications. Universal — Apple Silicon and Intel,
+macOS 14 or later.
+
+> **First launch takes one extra step.** ApexClean is not notarised, because
+> notarisation requires a paid Apple Developer Program membership and this is
+> free software. macOS will block it once:
+>
+> 1. Double-click ApexClean. macOS says it cannot verify the developer — click **Done**.
+> 2. Open **System Settings → Privacy & Security**.
+> 3. Scroll to **Security**, and next to "ApexClean was blocked" click **Open Anyway**.
+>
+> Once only. On macOS 15 and later the old right-click → Open bypass no longer
+> works, so most instructions you'll find elsewhere are out of date. From the
+> terminal, `xattr -dr com.apple.quarantine /Applications/ApexClean.app` does the
+> same thing. Building from source avoids it entirely — nothing you compile
+> yourself is quarantined.
+
+The app *is* ad-hoc signed, so its contents remain tamper-evident, and every
+release ships a `SHA256SUMS.txt` you can check with `shasum -a 256 -c`.
+
+<br>
+
+---
+
 ## Build and run
 
 Requires macOS 14+ and a Swift 5.9+ toolchain (Xcode 15 or later).
@@ -480,13 +507,17 @@ cost ten times the Actions minutes.
 
 <br>
 
-Pushing a `v*` tag builds a universal bundle, signs it, notarises it, and
-publishes a GitHub Release with a `.zip`, a `.dmg` and `SHA256SUMS.txt`.
+Pushing a `v*` tag builds a universal bundle, signs it, and publishes a GitHub
+Release with a drag-to-Applications `.dmg`, a `.zip` and `SHA256SUMS.txt`. The
+disk image is mounted and inspected before publication — an image that will not
+mount is worse than no release.
 
 Signing is conditional rather than required. With no credentials configured the
-workflow still produces a working ad-hoc build, but it labels the release
-clearly and **forces it to stay a draft** — an unsigned artefact can never
-publish itself and be mistaken for a distributable one.
+workflow still produces a working ad-hoc build and ships first-launch
+instructions inside the disk image, because notarisation needs a paid Apple
+Developer Program membership that a free project may not have. Manual
+`workflow_dispatch` runs always stay drafts, so the pipeline can be exercised
+without publishing anything.
 
 To sign and notarise properly, set these repository secrets:
 
