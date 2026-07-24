@@ -65,6 +65,39 @@ final class PathGuardTests: XCTestCase {
         XCTAssertFalse(PathGuard.evaluate(URL(fileURLWithPath: "/Volumes/External")).isAllowed)
     }
 
+    /// The one legitimate two-component target there is.
+    ///
+    /// This regressed in the worst possible direction: the depth floor refused
+    /// `/Applications/Thing.app` while happily removing its caches, containers
+    /// and preferences, so an uninstall destroyed an app's data and left the
+    /// app behind — with "refused by safety checks" as the only explanation.
+    func testAllowsApplicationBundlesInTheStandardLocation() {
+        let verdict = PathGuard.evaluate(URL(fileURLWithPath: "/Applications/Some Thing.app"))
+        XCTAssertTrue(verdict.isAllowed, "refused with: \(verdict.reason ?? "-")")
+
+        XCTAssertTrue(
+            PathGuard.evaluate(URL(fileURLWithPath: "/Applications/Utilities/Thing.app")).isAllowed
+        )
+        XCTAssertTrue(
+            PathGuard.evaluate(
+                URL(fileURLWithPath: home.path + "/Applications/Thing.app")
+            ).isAllowed
+        )
+    }
+
+    /// The exception must be exactly that, and not a hole in the depth floor.
+    func testApplicationBundleExceptionDoesNotWidenTheDepthFloor() {
+        for path in [
+            "/Applications", "/Applications/Utilities", "/Applications/NotAnApp",
+            "/Library/Caches", "/System/Applications", "/etc/passwd",
+        ] {
+            XCTAssertFalse(
+                PathGuard.evaluate(URL(fileURLWithPath: path)).isAllowed,
+                "\(path) must stay refused"
+            )
+        }
+    }
+
     func testRefusesPathTraversalOutOfPermittedRoots() {
         // `standardizedFileURL` resolves the traversal, so this asserts the
         // outcome — escaping the permitted roots — not the literal syntax.

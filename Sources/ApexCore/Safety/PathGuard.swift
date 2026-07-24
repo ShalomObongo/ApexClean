@@ -130,8 +130,15 @@ public enum PathGuard {
         }
 
         // Depth floor: /a and /a/b are always too coarse to be a cleanup target.
+        //
+        // Application bundles are the one honest exception. `/Applications` is
+        // a permitted root, so `/Applications/Thing.app` — the standard install
+        // location for essentially every Mac app — is only two components deep.
+        // Refusing it meant uninstall removed an app's caches, containers and
+        // preferences and then left the app itself sitting there, reporting
+        // only "refused by safety checks".
         let components = path.split(separator: "/").map(String.init)
-        if components.count < 3 {
+        if components.count < 3, !isTopLevelApplicationBundle(components) {
             return .refused(reason: "Path is too close to the volume root")
         }
 
@@ -211,6 +218,18 @@ public enum PathGuard {
         var value = path
         while value.count > 1, value.hasSuffix("/") { value.removeLast() }
         return value
+    }
+
+    /// `/Applications/Thing.app`, and nothing else.
+    ///
+    /// Deliberately narrow: it requires the exact two-component shape, the
+    /// literal `Applications` root and the `.app` suffix, so it cannot be used
+    /// to reach `/Applications` itself or any other shallow path.
+    private static func isTopLevelApplicationBundle(_ components: [String]) -> Bool {
+        components.count == 2
+            && components[0] == "Applications"
+            && components[1].hasSuffix(".app")
+            && components[1].count > 4
     }
 
     private static func isEndpointSecurityPath(_ path: String) -> Bool {
