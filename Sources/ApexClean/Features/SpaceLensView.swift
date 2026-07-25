@@ -34,10 +34,16 @@ struct SpaceLensView: View {
     }
 
     private var privacyInvite: some View {
-        PrivacyInviteCard(
-            title: "Personal folders are excluded",
-            detail:
-                "Desktop, Documents and Downloads are skipped so mapping your Home folder never raises a permission dialog on its own.",
+        let included = model.includesProtectedLocations
+        return PrivacyInviteCard(
+            title: included
+                ? "Personal folders are included"
+                : "Personal folders are excluded",
+            detail: included
+                ? "Desktop, Documents and Downloads are mapped, so the treemap accounts for "
+                    + "everything in your Home folder. Exclude them to leave them untouched."
+                : "Desktop, Documents and Downloads are skipped so mapping your Home folder "
+                    + "never raises a permission dialog on its own.",
             scopes: [.downloads, .desktop, .documents],
             isEnabled: Binding(
                 get: { model.includesProtectedLocations },

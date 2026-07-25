@@ -18,6 +18,15 @@ struct RootView: View {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+
+            // Covers the app entirely rather than sitting in a sheet: setup is
+            // the task until it is finished, and a half-visible app behind it
+            // would only invite people to dismiss it and hit the dialogs later.
+            if state.isOnboarding {
+                OnboardingView(model: state.onboarding)
+                    .transition(.opacity)
+                    .zIndex(1)
+            }
         }
         .frame(minWidth: 1_040, minHeight: 700)
         .preferredColorScheme(nil)

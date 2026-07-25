@@ -379,10 +379,16 @@ struct SmartCareView: View {
     }
 
     private var privacyInvite: some View {
-        PrivacyInviteCard(
-            title: "Downloads and Desktop are not scanned",
-            detail:
-                "macOS protects these folders, so ApexClean leaves them alone unless you say otherwise. Nothing there is read until you include them.",
+        let included = model.includesProtectedLocations
+        return PrivacyInviteCard(
+            title: included
+                ? "Downloads and Desktop are included"
+                : "Downloads and Desktop are not scanned",
+            detail: included
+                ? "Scans cover these folders, so installers and forgotten downloads are found. "
+                    + "Exclude them at any time and ApexClean stops reading them."
+                : "macOS protects these folders, so ApexClean leaves them alone unless you say "
+                    + "otherwise. Nothing there is read until you include them.",
             scopes: [.downloads, .desktop],
             isEnabled: Binding(
                 get: { model.includesProtectedLocations },

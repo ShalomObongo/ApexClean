@@ -92,9 +92,57 @@ final class AppState: ObservableObject {
     @Published var lastCleanSummary: OperationLog.Session?
     @Published var totalReclaimedEver: Int64 = 0
 
+    /// Shown over everything until setup is finished or skipped.
+    @Published var isOnboarding: Bool
+    let onboarding = OnboardingModel()
+
     init() {
+        isOnboarding = !Settings.hasCompletedSetup
         totalReclaimedEver = history.totalReclaimed()
         lastCleanSummary = history.recentSessions(limit: 1).first
+
+        NotificationCenter.default.addObserver(
+            forName: .onboardingDidFinish, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                withAnimation(Motion.stage) { self.isOnboarding = false }
+                self.applyPrivacyPreference()
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: .privacyScopeDidChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                guard let self else { return }
+                self.applyPrivacyPreference()
+            }
+        }
+
+        applyPrivacyPreference()
+    }
+
+    /// Pushes the persisted scan scope into the models that act on it.
+    ///
+    /// Both Cleanup and Space Lens own the same preference, so a change made in
+    /// one has to reach the other: without this, including Downloads from Smart
+    /// Care left Space Lens still skipping them until the next launch.
+    ///
+    /// These used to default to "excluded" on every launch, so a user who had
+    /// opted into their personal folders silently got a narrower scan every
+    /// time the app restarted.
+    func applyPrivacyPreference() {
+        let included = Settings.includesPersonalFolders
+        cleanup.includesProtectedLocations = included
+        space.includesProtectedLocations = included
+    }
+
+    /// Re-runs setup on demand.
+    func restartOnboarding() {
+        Settings.resetSetup()
+        onboarding.restart()
+        withAnimation(Motion.stage) { isOnboarding = true }
     }
 
     func refreshHistory() {

@@ -20,8 +20,17 @@ final class SpaceModel: ObservableObject {
     /// Folders that did not answer in time and were left out of the map.
     @Published private(set) var unreadablePaths: [String] = []
     /// Off by default so mapping Home never raises an unexpected consent
-    /// dialog. Turning it on is a deliberate, explained choice.
-    @Published var includesProtectedLocations = false
+    /// dialog. Turning it on is a deliberate, explained choice, and persisted so
+    /// it stays made.
+    @Published var includesProtectedLocations = false {
+        didSet {
+            // The guard is what stops the sync below from bouncing: `didSet`
+            // fires on every assignment, including one that changes nothing.
+            guard oldValue != includesProtectedLocations else { return }
+            Settings.includesPersonalFolders = includesProtectedLocations
+            NotificationCenter.default.post(name: .privacyScopeDidChange, object: nil)
+        }
+    }
     /// Node ids currently being moved to the Trash, so their button can show it.
     @Published private(set) var removing: Set<String> = []
     /// Surfaced when a removal was refused or failed. Silence after a click on

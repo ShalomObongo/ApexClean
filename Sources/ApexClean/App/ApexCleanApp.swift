@@ -38,6 +38,8 @@ struct ApexCleanApp: App {
                     state.cleanup.scan()
                 }
                 .keyboardShortcut("r", modifiers: .command)
+
+                Button("Set Up ApexClean…") { state.restartOnboarding() }
             }
 
             CommandMenu("Go") {
