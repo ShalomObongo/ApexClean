@@ -107,23 +107,30 @@ public enum PowerSampler {
         vitals.hasBattery = true
         vitals.cycleCount = properties["CycleCount"] as? Int ?? vitals.cycleCount
 
-        // Apple Silicon reports capacity in mAh under different keys depending on
-        // the generation; take whichever pair is present and non-zero.
+        // Capacity keys, in the order macOS itself trusts them.
+        //
+        // `MaxCapacity` is deliberately absent. On Apple Silicon it is a
+        // *percentage* — this machine reports `MaxCapacity = 100` alongside
+        // `DesignCapacity = 5103` — so using it as a mAh figure yields
+        // 100/5103 = 2% and flags "Service recommended" on a healthy battery.
+        // `NominalChargeCapacity` is what System Settings shows: 4437/5103 =
+        // 87%, where `AppleRawMaxCapacity` gives 84% and disagrees visibly with
+        // the number the user can check against macOS.
         let design = properties["DesignCapacity"] as? Int ?? 0
-        let maxCapacity =
-            properties["AppleRawMaxCapacity"] as? Int
-            ?? properties["MaxCapacity"] as? Int
+        let capacity =
+            properties["NominalChargeCapacity"] as? Int
+            ?? properties["AppleRawMaxCapacity"] as? Int
             ?? 0
-        if design > 0, maxCapacity > 0 {
+        if design > 0, capacity > 0 {
             vitals.designCapacity = design
-            vitals.currentCapacity = maxCapacity
-        } else if let nominal = properties["NominalChargeCapacity"] as? Int, design > 0 {
-            vitals.designCapacity = design
-            vitals.currentCapacity = nominal
+            vitals.currentCapacity = min(capacity, design)
         }
 
         if let raw = properties["Temperature"] as? Int, raw > 0 {
-            vitals.temperatureCelsius = Double(raw) / 100.0
+            // Reported in hundredths of a degree on every Mac measured, but
+            // some hardware reports whole degrees. Dividing unconditionally
+            // would turn 31 °C into 0.31 °C.
+            vitals.temperatureCelsius = raw < 1000 ? Double(raw) : Double(raw) / 100.0
         }
 
         if let condition = properties["PermanentFailureStatus"] as? Int, condition != 0 {
