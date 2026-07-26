@@ -1,0 +1,21 @@
+version: 2
+
+updates:
+  # The project has no third-party Swift dependencies by design — it links only
+  # Apple system frameworks — so GitHub Actions is the entire supply chain.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '05:00'
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'ci'
+    labels:
+      - dependencies
+    groups:
+      # One PR for routine bumps; security updates still arrive separately.
+      actions:
+        patterns: ['*']
+        update-types: [minor, patch]
