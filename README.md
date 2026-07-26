@@ -321,8 +321,8 @@ under a bounded budget, so a pathological path can cost you a folder but never t
 Requires macOS 14+ and a Swift 5.9+ toolchain (Xcode 15 or later).
 
 ```sh
-git clone https://github.com/apexclean/apexclean.git
-cd apexclean
+git clone https://github.com/ShalomObongo/ApexClean.git
+cd ApexClean
 make run
 ```
 

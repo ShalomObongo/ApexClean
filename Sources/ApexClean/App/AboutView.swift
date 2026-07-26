@@ -111,7 +111,7 @@ struct AboutView: View {
 
             VStack(alignment: .leading, spacing: 9) {
                 link("Read the full license", "https://www.gnu.org/licenses/gpl-3.0.html")
-                link("ApexClean source code", "https://github.com/apexclean/apexclean")
+                link("ApexClean source code", "https://github.com/ShalomObongo/ApexClean")
                 link("Mole, the project this builds on", "https://github.com/tw93/mole")
             }
             .padding(.top, 2)
