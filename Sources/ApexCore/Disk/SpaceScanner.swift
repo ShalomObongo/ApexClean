@@ -315,7 +315,7 @@ public enum LargeFileFinder {
         isCancelled: () -> Bool = { false }
     ) -> [Match] {
         let keys: Set<URLResourceKey> = [
-            .isRegularFileKey, .totalFileAllocatedSizeKey,
+            .isRegularFileKey, .isDirectoryKey, .totalFileAllocatedSizeKey,
             .fileAllocatedSizeKey, .contentModificationDateKey,
         ]
         guard
@@ -332,19 +332,27 @@ public enum LargeFileFinder {
         for case let url as URL in enumerator {
             if isCancelled() { break }
             onVisit()
+            guard let values = try? url.resourceValues(forKeys: keys) else { continue }
+            let isDirectory = values.isDirectory == true
+
             // Same pre-read rules as the treemap walk: skip anything that can
             // prompt, fault in from a provider, or live on another volume.
+            //
+            // The opaque-container rule applies to *directories only*. It
+            // matches on extension, and `dmg`, `sparseimage` and `sparsebundle`
+            // are on that list — but a `.dmg` is an ordinary file, so applying
+            // the rule to files meant a 12 GB stale installer in Downloads,
+            // the single most common piece of large junk on a Mac, could never
+            // appear in "largest files".
             if skipping.contains(url.path)
                 || (!includesProtectedLocations && PrivacyAccess.requiresConsent(url.path))
-                || Traversal.isOpaqueContainer(url)
                 || !fence.admits(url)
+                || (isDirectory && Traversal.isOpaqueContainer(url))
             {
-                enumerator.skipDescendants()
+                if isDirectory { enumerator.skipDescendants() }
                 continue
             }
-            guard let values = try? url.resourceValues(forKeys: keys),
-                values.isRegularFile == true
-            else { continue }
+            guard values.isRegularFile == true else { continue }
             let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             guard bytes >= minimumBytes else { continue }
             matches.append(
