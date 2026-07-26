@@ -214,8 +214,17 @@ struct ApexCheckbox: View {
                 )
                 .frame(width: 16, height: 16)
                 .scaleEffect(isOn && !reduceMotion ? 1 : 0.98)
+                // A 16pt box is the right size to look at and the wrong size to
+                // hit — well under the ~28pt macOS expects, which made selecting
+                // tasks and findings genuinely fiddly. Pad out to a comfortable
+                // target, claim it for hit testing, then pad back in so the
+                // surrounding layout is unchanged.
+                .padding(6)
+                .contentShape(Rectangle())
+                .padding(-6)
         }
         .buttonStyle(.plain)
-        .accessibilityAddTraits(isOn ? [.isSelected] : [])
+        .accessibilityAddTraits(.isToggle)
+        .accessibilityValue(isMixed ? "Mixed" : (isOn ? "Selected" : "Not selected"))
     }
 }

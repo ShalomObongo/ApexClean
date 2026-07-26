@@ -46,7 +46,13 @@ struct ApplicationsView: View {
         ) {
             HStack(spacing: 8) {
                 searchField
-                ApexButton(title: "Refresh", symbol: "arrow.clockwise", kind: .secondary) { model.load() }
+                ApexButton(
+                    title: model.isLoading ? "Scanning" : "Refresh",
+                    symbol: "arrow.clockwise",
+                    kind: .secondary,
+                    isLoading: model.isLoading
+                ) { model.load() }
+                .disabled(model.isLoading)
             }
         }
     }
@@ -150,7 +156,7 @@ struct ApplicationsView: View {
                             unusedBanner
                         }
                         ForEach(model.filteredApps) { app in
-                            AppRow(app: app) { model.preparePlan(for: app) }
+                            AppRow(app: app, isPreparing: model.isBuildingPlan && model.pendingUninstallID == app.id) { model.preparePlan(for: app) }
                         }
                     }
                     .padding(.horizontal, 28)
@@ -210,27 +216,86 @@ struct ApplicationsView: View {
                                     .foregroundStyle(Palette.inkTertiary(scheme))
                             }
                             Spacer()
-                            ApexButton(title: "Check again", kind: .secondary, size: .compact) {
+                            ApexButton(
+                                title: model.isCheckingUpdates ? "Checking" : "Check again",
+                                kind: .secondary,
+                                size: .compact,
+                                isLoading: model.isCheckingUpdates
+                            ) {
                                 model.checkUpdates()
                             }
+                            .disabled(model.isCheckingUpdates)
                         }
                     }
                 } else {
-                    ForEach(model.outdated) { cask in
-                        ApexCard(padding: 13) {
+                    if model.outdated.count > 1 {
+                        ApexCard(padding: 13, accent: Palette.jade) {
                             HStack(spacing: 12) {
-                                GlyphTile(symbol: "arrow.down.app", tint: Palette.jade, size: 30)
+                                GlyphTile(symbol: "square.and.arrow.down.on.square", tint: Palette.jade, size: 30)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(cask.token.replacingOccurrences(of: "-", with: " ").capitalized)
+                                    Text("\(model.outdated.count) updates available")
                                         .font(Typo.cardTitle)
                                         .foregroundStyle(Palette.ink(scheme))
-                                    Text("\(cask.currentVersion) → \(cask.latestVersion)")
-                                        .font(Typo.numeric(11))
+                                    Text("Each one downloads a full application, so this can take a while.")
+                                        .font(Typo.secondary)
                                         .foregroundStyle(Palette.inkTertiary(scheme))
                                 }
                                 Spacer()
-                                ApexButton(title: "Update", kind: .secondary, size: .compact) {
-                                    model.upgrade(cask)
+                                ApexButton(
+                                    title: model.upgrading.isEmpty
+                                        ? "Update all"
+                                        : "Updating \(model.upgrading.count)",
+                                    kind: .primary,
+                                    size: .compact,
+                                    isLoading: !model.upgrading.isEmpty
+                                ) {
+                                    model.upgradeAll()
+                                }
+                                .disabled(!model.upgrading.isEmpty)
+                            }
+                        }
+                    }
+
+                    ForEach(model.outdated) { cask in
+                        let isUpgrading = model.upgrading.contains(cask.token)
+                        let failure = model.upgradeFailures[cask.token]
+                        ApexCard(padding: 13, accent: failure != nil ? Palette.caution : nil) {
+                            VStack(alignment: .leading, spacing: 7) {
+                                HStack(spacing: 12) {
+                                    GlyphTile(
+                                        symbol: failure != nil ? "exclamationmark.triangle" : "arrow.down.app",
+                                        tint: failure != nil ? Palette.caution : Palette.jade,
+                                        size: 30
+                                    )
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(cask.token.replacingOccurrences(of: "-", with: " ").capitalized)
+                                            .font(Typo.cardTitle)
+                                            .foregroundStyle(Palette.ink(scheme))
+                                        Text(isUpgrading
+                                             ? "Downloading and installing \(cask.latestVersion)…"
+                                             : "\(cask.currentVersion) → \(cask.latestVersion)")
+                                            .font(Typo.numeric(11))
+                                            .foregroundStyle(Palette.inkTertiary(scheme))
+                                    }
+                                    Spacer()
+                                    ApexButton(
+                                        title: isUpgrading ? "Updating" : (failure != nil ? "Try again" : "Update"),
+                                        kind: .secondary,
+                                        size: .compact,
+                                        isLoading: isUpgrading
+                                    ) {
+                                        model.upgrade(cask)
+                                    }
+                                    .disabled(isUpgrading)
+                                }
+
+                                if let failure {
+                                    Text(failure)
+                                        .font(Typo.caption)
+                                        .foregroundStyle(Palette.caution)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                        .padding(.leading, 42)
+                                        .textSelection(.enabled)
                                 }
                             }
                         }
@@ -265,7 +330,7 @@ struct ApplicationsView: View {
                 }
 
                 ForEach(model.startupItems) { item in
-                    StartupRow(item: item) { model.removeStartupItem(item) }
+                    StartupRow(item: item, isRemoving: model.removingStartupItems.contains(item.id)) { model.removeStartupItem(item) }
                 }
             }
             .padding(.horizontal, 28)
@@ -291,6 +356,7 @@ private struct PlanBox: Identifiable {
 
 private struct AppRow: View {
     let app: InstalledApp
+    let isPreparing: Bool
     let onUninstall: () -> Void
 
     @Environment(\.colorScheme) private var scheme
@@ -340,8 +406,15 @@ private struct AppRow: View {
                         .foregroundStyle(Palette.inkTertiary(scheme).opacity(0.5))
                 }
 
-                ApexButton(title: "Uninstall…", kind: .secondary, size: .compact, action: onUninstall)
-                    .opacity(hovering ? 1 : 0.55)
+                ApexButton(
+                    title: isPreparing ? "Reading" : "Uninstall…",
+                    kind: .secondary,
+                    size: .compact,
+                    isLoading: isPreparing,
+                    action: onUninstall
+                )
+                .disabled(isPreparing)
+                .opacity(hovering || isPreparing ? 1 : 0.55)
             }
         }
         .onHover { hovering = $0 }
@@ -350,6 +423,7 @@ private struct AppRow: View {
 
 private struct StartupRow: View {
     let item: StartupItem
+    let isRemoving: Bool
     let onRemove: () -> Void
 
     @Environment(\.colorScheme) private var scheme
@@ -391,8 +465,15 @@ private struct StartupRow: View {
                 }
 
                 if item.scope == .userAgent, !item.isApple {
-                    ApexButton(title: "Remove", kind: .secondary, size: .compact, action: onRemove)
-                        .opacity(hovering ? 1 : 0.5)
+                    ApexButton(
+                        title: isRemoving ? "Removing" : "Remove",
+                        kind: .secondary,
+                        size: .compact,
+                        isLoading: isRemoving,
+                        action: onRemove
+                    )
+                    .disabled(isRemoving)
+                    .opacity(hovering || isRemoving ? 1 : 0.5)
                 } else {
                     Text("Needs admin")
                         .font(.system(size: 10))

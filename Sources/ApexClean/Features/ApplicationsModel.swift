@@ -21,9 +21,22 @@ final class ApplicationsModel: ObservableObject {
 
     @Published private(set) var plan: UninstallPlan?
     @Published private(set) var isBuildingPlan = false
+    /// Which row is waiting on its leftover scan, so only that button spins.
+    @Published private(set) var pendingUninstallID: String?
     @Published var planSelection: Set<String> = []
     @Published private(set) var uninstallOutcome: Remover.Outcome?
     @Published private(set) var isUninstalling = false
+    /// Cask tokens currently being upgraded. A cask upgrade downloads an entire
+    /// application, so "nothing appears to happen for four minutes" is the
+    /// default experience unless the button says otherwise.
+    @Published private(set) var upgrading: Set<String> = []
+    @Published private(set) var upgraded: Set<String> = []
+    /// Why an upgrade failed, keyed by token. Homebrew fails for ordinary,
+    /// fixable reasons — the app is open, or the cask needs an admin password —
+    /// and silently doing nothing is the worst possible response.
+    @Published private(set) var upgradeFailures: [String: String] = [:]
+    /// Startup items mid-removal, so their row can show progress.
+    @Published private(set) var removingStartupItems: Set<String> = []
 
     enum Sort: String, CaseIterable, Identifiable {
         case size = "Size"
@@ -122,7 +135,9 @@ final class ApplicationsModel: ObservableObject {
     // MARK: - Uninstall
 
     func preparePlan(for app: InstalledApp) {
+        guard !isBuildingPlan else { return }
         isBuildingPlan = true
+        pendingUninstallID = app.id
         plan = nil
         uninstallOutcome = nil
         queue.async { [weak self] in
@@ -139,6 +154,7 @@ final class ApplicationsModel: ObservableObject {
                 )
                 self.planSelection.insert(plan.bundle.path)
                 self.isBuildingPlan = false
+                self.pendingUninstallID = nil
             }
         }
     }
@@ -190,22 +206,53 @@ final class ApplicationsModel: ObservableObject {
     // MARK: - Startup
 
     func removeStartupItem(_ item: StartupItem) {
-        guard item.scope == .userAgent else { return }
+        guard item.scope == .userAgent, !removingStartupItems.contains(item.id) else { return }
+        removingStartupItems.insert(item.id)
         let historyRef = history
         let url = item.url
+        let id = item.id
         queue.async { [weak self] in
             StartupInventory.unload(item)
             let remover = Remover(history: historyRef)
             _ = remover.remove([url], disposal: .trash)
             _ = historyRef.commitSession(title: "Removed startup item")
-            DispatchQueue.main.async { self?.load() }
+            DispatchQueue.main.async {
+                self?.removingStartupItems.remove(id)
+                self?.load()
+            }
         }
     }
 
     func upgrade(_ cask: HomebrewBridge.OutdatedCask) {
-        queue.async { [weak self] in
-            _ = HomebrewBridge.upgradeCask(cask.token)
-            DispatchQueue.main.async { self?.checkUpdates() }
+        guard !upgrading.contains(cask.token) else { return }
+        upgrading.insert(cask.token)
+        upgradeFailures[cask.token] = nil
+        let token = cask.token
+
+        // Its own queue, not the shared serial one: a cask upgrade downloads a
+        // whole application and can run for minutes, and nothing else in this
+        // screen should be stuck behind it.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let outcome = HomebrewBridge.upgrade(token)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.upgrading.remove(token)
+                if outcome.succeeded {
+                    self.upgraded.insert(token)
+                    self.outdated.removeAll { $0.token == token }
+                    // Re-read the inventory so the installed version and size
+                    // reflect the app that is now actually on disk.
+                    self.load()
+                } else {
+                    self.upgradeFailures[token] = outcome.message
+                }
+            }
+        }
+    }
+
+    func upgradeAll() {
+        for cask in outdated where !upgrading.contains(cask.token) {
+            upgrade(cask)
         }
     }
 }

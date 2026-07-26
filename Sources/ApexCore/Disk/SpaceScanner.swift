@@ -37,6 +37,24 @@ public final class SpaceNode: Identifiable, Hashable {
 
     public var hasChildren: Bool { !children.isEmpty }
 
+    /// Detaches a child and subtracts its size from every ancestor.
+    ///
+    /// Used after a removal so the map stays truthful without re-measuring the
+    /// whole volume — a full rescan of a home folder takes minutes, which is an
+    /// absurd price for having trashed one folder.
+    public func prune(_ child: SpaceNode) {
+        guard let index = children.firstIndex(where: { $0.id == child.id }) else { return }
+        let freed = children[index].bytes
+        children.remove(at: index)
+        child.parent = nil
+
+        var ancestor: SpaceNode? = self
+        while let node = ancestor {
+            node.bytes = max(0, node.bytes - freed)
+            ancestor = node.parent
+        }
+    }
+
     public var breadcrumb: [SpaceNode] {
         var trail: [SpaceNode] = []
         var current: SpaceNode? = self

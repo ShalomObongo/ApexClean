@@ -266,6 +266,10 @@ public final class CleanupScanner {
         for url in matches {
             if isCancelled { break }
             guard PathGuard.evaluate(url).isAllowed else { continue }
+            // A glob can expand onto a gated path even when the pattern itself
+            // looked innocuous, and measuring one blocks in the kernel with no
+            // deadline. Re-check every expanded match, not just the pattern.
+            if !includesProtectedLocations, PrivacyAccess.requiresConsent(url.path) { continue }
 
             let attributes = try? url.resourceValues(forKeys: [.contentModificationDateKey])
             let modified = attributes?.contentModificationDate

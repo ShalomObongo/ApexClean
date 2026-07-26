@@ -31,6 +31,15 @@ final class CleanupModel: ObservableObject {
     /// consent, and an automatic scan is the wrong moment to ask.
     @Published var includesProtectedLocations = false
     @Published private(set) var protectedScopesGranted: Set<String> = []
+    /// Emptying the Trash is offered alongside a cleanup but never folded into
+    /// it. Everything ApexClean removes goes *to* the Trash, so emptying in the
+    /// same pass destroys the recovery path for the files being removed right
+    /// now — that is a separate decision and has to be made deliberately.
+    @Published var emptiesTrashAfterCleaning = false
+    /// What ApexClean can currently say about the Trash. Measured off the main
+    /// thread when a scan finishes so the confirmation sheet states a real
+    /// figure, or admits it cannot see one, rather than implying either.
+    @Published private(set) var trashState: Remover.TrashState = .empty
 
     private let history: OperationLog
     private var scanner: CleanupScanner?
@@ -61,6 +70,18 @@ final class CleanupModel: ObservableObject {
     var removalIsPermanent: Bool {
         let findings = selectedFindings
         return findings.count == 1 && findings.contains { $0.category == .trash }
+    }
+
+    /// True when the selection *includes* Trash contents alongside other groups.
+    /// Those items are erased rather than moved, and a sheet headed "Move to the
+    /// Trash" would otherwise quietly overstate how recoverable the pass is.
+    var selectionMixesTrash: Bool {
+        let findings = selectedFindings
+        return findings.count > 1 && findings.contains { $0.category == .trash }
+    }
+
+    var selectedTrashBytes: Int64 {
+        selectedFindings.filter { $0.category == .trash }.reduce(0) { $0 + $1.bytes }
     }
 
     /// What the selection breaks down into, largest first.
@@ -160,6 +181,16 @@ final class CleanupModel: ObservableObject {
         withAnimation(Motion.stage) {
             stage = result.isEmpty ? .finished : .reviewing
         }
+        refreshTrashSize()
+    }
+
+    /// Measured off the main thread — the Trash can hold a very large tree, and
+    /// sizing it is exactly the kind of work that must never block the UI.
+    private func refreshTrashSize() {
+        scanQueue.async { [weak self] in
+            let state = Remover.inspectTrash()
+            DispatchQueue.main.async { self?.trashState = state }
+        }
     }
 
     func cancelScan() {
@@ -216,15 +247,26 @@ final class CleanupModel: ObservableObject {
         }
         let permanent = removalIsPermanent
         let historyRef = history
+        let emptiesTrash = emptiesTrashAfterCleaning
 
         scanQueue.async { [weak self] in
             let remover = Remover(history: historyRef)
-            let outcome = remover.remove(
+            var outcome = remover.remove(
                 urls,
                 disposal: permanent ? .delete : .trash,
                 allowUserRoots: permanent,
                 knownSizes: knownSizes
             )
+            // Deliberately last. Emptying first would leave this pass's own
+            // removals sitting in a Trash the user asked to be empty, which is
+            // the opposite of what they chose.
+            if emptiesTrash {
+                let emptied = remover.emptyTrash()
+                outcome.removed += emptied.removed
+                outcome.failed += emptied.failed
+                outcome.bytesReclaimed += emptied.bytesReclaimed
+                outcome.filesRemoved += emptied.filesRemoved
+            }
             let session = historyRef.commitSession(title: "Cleanup")
             DispatchQueue.main.async {
                 self?.finishClean(outcome, session: session)
@@ -252,6 +294,10 @@ final class CleanupModel: ObservableObject {
         }
         report.groups = groups
         selection = []
+        // A one-shot choice, not a setting. Emptying the Trash should be agreed
+        // to each time it happens, never inherited by the next cleanup.
+        emptiesTrashAfterCleaning = false
+        refreshTrashSize()
 
         withAnimation(Motion.stage) { stage = .finished }
     }

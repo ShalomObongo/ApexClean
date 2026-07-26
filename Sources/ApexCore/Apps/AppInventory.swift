@@ -211,8 +211,76 @@ public enum HomebrewBridge {
 
     @discardableResult
     public static func upgradeCask(_ token: String) -> Bool {
-        guard let brew = brewPath else { return false }
-        let output = Shell.run(brew, ["upgrade", "--cask", token], timeout: 600)
-        return output != nil
+        upgrade(token).succeeded
+    }
+
+    public struct UpgradeOutcome {
+        public let succeeded: Bool
+        /// Short, human-readable reason. Empty when the upgrade worked.
+        public let message: String
+    }
+
+    /// Upgrades one cask and reports what actually happened.
+    ///
+    /// Success is the process exit status, never "we got some output" — brew
+    /// prints plenty while failing. `--greedy` matches how the outdated list is
+    /// built, so casks that auto-update are actually upgradeable rather than
+    /// listed and then refused.
+    public static func upgrade(_ token: String) -> UpgradeOutcome {
+        guard let brew = brewPath else {
+            return UpgradeOutcome(succeeded: false, message: "Homebrew is not installed")
+        }
+
+        var environment = ProcessInfo.processInfo.environment
+        // Non-interactive: a sudo or confirmation prompt here would block on a
+        // question the user can never be asked, so brew must fail fast instead.
+        environment["HOMEBREW_NO_AUTO_UPDATE"] = "1"
+        environment["HOMEBREW_NO_ENV_HINTS"] = "1"
+        environment["SUDO_ASKPASS"] = "/nonexistent"
+
+        let result = Shell.runDetailed(
+            brew,
+            ["upgrade", "--cask", "--greedy", token],
+            timeout: 900,
+            environment: environment
+        )
+
+        if result.succeeded { return UpgradeOutcome(succeeded: true, message: "") }
+        if result.timedOut {
+            return UpgradeOutcome(succeeded: false, message: "Timed out after 15 minutes")
+        }
+        return UpgradeOutcome(succeeded: false, message: describe(failure: result))
+    }
+
+    /// Turns brew's output into one sentence worth showing.
+    ///
+    /// Deliberately not clever. An earlier version pattern-matched loosely for
+    /// "quit" and "sudo", and cheerfully reported "Quit the app first" for an
+    /// error that read `invalid option: --no-quarantine` — a confident, wrong
+    /// diagnosis, which is worse than no diagnosis. Only two conditions are
+    /// recognised, both by unambiguous markers; everything else is quoted.
+    static func describe(failure result: Shell.Result) -> String {
+        let lines = result.output
+            .split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+        let errorLine = lines.last { $0.hasPrefix("Error:") }
+        let text = errorLine.map {
+            String($0.dropFirst("Error:".count)).trimmingCharacters(in: .whitespaces)
+        }
+
+        let haystack = (text ?? result.output).lowercased()
+        if haystack.contains("password is required") || haystack.contains("sudo: a terminal") {
+            return "Needs an administrator password. Run `brew upgrade --cask <name>` in Terminal."
+        }
+        if haystack.contains("is currently running") || haystack.contains("application is open") {
+            return "Quit the app first, then try again."
+        }
+        // macOS 13+ stops one app from modifying another unless App Management
+        // is granted. brew reports it as a bare permissions error, which tells
+        // nobody where to go.
+        if haystack.contains("operation not permitted") || haystack.contains("permission denied") {
+            return "macOS blocked this. Allow ApexClean under Privacy & Security → App Management, then try again."
+        }
+        return text ?? result.lastMeaningfulLine ?? "Homebrew reported an error"
     }
 }

@@ -8,3 +8,6 @@ Package.resolved
 
 # macOS
 .DS_Store
+
+# Editor
+/.vscode/

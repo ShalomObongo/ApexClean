@@ -43,3 +43,47 @@ final class OutdatedCaskParsingTests: XCTestCase {
         XCTAssertTrue(HomebrewBridge.parseOutdatedCasks("(1.0) != 2.0").isEmpty)
     }
 }
+
+/// A wrong diagnosis is worse than none. An earlier version matched "quit"
+/// loosely and reported "Quit the app first" for `invalid option:
+/// --no-quarantine`, so these tests pin the failure wording down.
+final class UpgradeFailureReportingTests: XCTestCase {
+    private func failure(_ output: String) -> String {
+        HomebrewBridge.describe(
+            failure: Shell.Result(status: 1, output: output, timedOut: false)
+        )
+    }
+
+    func testQuotesHomebrewsOwnErrorLine() {
+        XCTAssertEqual(failure("==> Downloading\nError: invalid option: --no-quarantine"),
+                       "invalid option: --no-quarantine")
+    }
+
+    func testDoesNotMistakeQuarantineForQuit() {
+        XCTAssertFalse(failure("Error: invalid option: --no-quarantine").contains("Quit the app"))
+    }
+
+    func testRecognisesARunningApplication() {
+        XCTAssertEqual(failure("Error: Prismlauncher is currently running"),
+                       "Quit the app first, then try again.")
+    }
+
+    func testRecognisesAPasswordRequirement() {
+        XCTAssertTrue(failure("Error: sudo: a password is required").contains("administrator password"))
+    }
+
+    func testFallsBackToTheLastLineWhenThereIsNoErrorPrefix() {
+        XCTAssertEqual(failure("==> Downloading\nsomething went sideways"), "something went sideways")
+    }
+
+    func testPointsAtAppManagementForBlockedBundleWrites() {
+        XCTAssertTrue(
+            failure("Error: Operation not permitted @ /Applications/Thing.app")
+                .contains("App Management")
+        )
+    }
+
+    func testNeverReturnsAnEmptyMessage() {
+        XCTAssertFalse(failure("").isEmpty)
+    }
+}

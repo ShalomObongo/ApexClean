@@ -59,16 +59,32 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>ApexClean needs access to find installers and incomplete downloads.</string>
     <key>NSRemovableVolumesUsageDescription</key>
     <string>ApexClean needs access to analyse storage on external volumes.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>ApexClean asks Finder to empty the Trash. macOS keeps the Trash private unless an app has Full Disk Access, so Finder does it instead.</string>
 </dict>
 </plist>
 PLIST
+
+# The hardened runtime blocks Apple events unless the entitlement is present,
+# and emptying the Trash without Full Disk Access has to go through Finder.
+ENTITLEMENTS="$ROOT/.build/ApexClean.entitlements"
+cat > "$ENTITLEMENTS" <<ENT
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.automation.apple-events</key><true/>
+</dict>
+</plist>
+ENT
 
 # Ad-hoc signature. A distribution build would substitute a Developer ID here
 # and run notarytool; ad-hoc is enough for local use and keeps the script
 # runnable without credentials.
 echo "==> Signing (ad-hoc)"
-codesign --force --deep --sign - --options runtime "$APP" 2>/dev/null \
-    || codesign --force --deep --sign - "$APP"
+codesign --force --deep --sign - --options runtime \
+    --entitlements "$ENTITLEMENTS" "$APP" 2>/dev/null \
+    || codesign --force --deep --sign - --entitlements "$ENTITLEMENTS" "$APP"
 
 codesign --verify --verbose=1 "$APP" 2>&1 | sed 's/^/    /'
 

@@ -70,6 +70,89 @@ public enum Shell {
         FileManager.default.isExecutableFile(atPath: path)
     }
 
+    /// The outcome of a command whose success actually matters.
+    public struct Result {
+        public let status: Int32
+        /// stdout and stderr combined, in the order the child wrote them.
+        public let output: String
+        public let timedOut: Bool
+
+        public var succeeded: Bool { !timedOut && status == 0 }
+
+        /// The most useful line to show a person: tools put the real complaint
+        /// last, after any progress chatter.
+        public var lastMeaningfulLine: String? {
+            output
+                .split(separator: "\n")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .last { !$0.isEmpty && !$0.hasPrefix("==>") }
+        }
+    }
+
+    /// Like `run`, but reports exit status and merges stderr.
+    ///
+    /// `run` deliberately treats every failure as "no data", which is right for
+    /// sampling but wrong for anything the user asked for and is waiting on —
+    /// an upgrade that failed must not be reported as an upgrade that worked.
+    public static func runDetailed(
+        _ launchPath: String,
+        _ arguments: [String],
+        timeout: TimeInterval = 10,
+        environment: [String: String]? = nil
+    ) -> Result {
+        guard FileManager.default.isExecutableFile(atPath: launchPath) else {
+            return Result(status: -1, output: "\(launchPath) is not available", timedOut: false)
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: launchPath)
+        process.arguments = arguments
+        if let environment { process.environment = environment }
+
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        // Nothing interactive can be answered from here, so close stdin rather
+        // than let a tool block forever waiting on a prompt nobody will see.
+        process.standardInput = FileHandle.nullDevice
+
+        let exited = DispatchSemaphore(value: 0)
+        process.terminationHandler = { _ in exited.signal() }
+
+        do {
+            try process.run()
+        } catch {
+            return Result(status: -1, output: error.localizedDescription, timedOut: false)
+        }
+
+        var data = Data()
+        let lock = NSLock()
+        let reader = DispatchQueue(label: "fit.apexclean.shell.read")
+        let done = DispatchSemaphore(value: 0)
+        reader.async {
+            let chunk = pipe.fileHandleForReading.readDataToEndOfFile()
+            lock.lock()
+            data = chunk
+            lock.unlock()
+            done.signal()
+        }
+
+        var timedOut = false
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            timedOut = true
+            process.terminate()
+            _ = done.wait(timeout: .now() + 2)
+        }
+        _ = exited.wait(timeout: .now() + 2)
+
+        lock.lock()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        lock.unlock()
+
+        let status = process.isRunning ? -1 : process.terminationStatus
+        return Result(status: status, output: output, timedOut: timedOut)
+    }
+
     /// Resolves a tool from the small set of locations ApexClean is willing to trust.
     public static func which(_ tool: String) -> String? {
         let roots = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]

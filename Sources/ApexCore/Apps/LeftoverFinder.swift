@@ -9,6 +9,10 @@ public struct Leftover: Identifiable, Hashable {
     /// Why we think this belongs to the app. Shown verbatim in review, because
     /// "trust me" is not an acceptable justification for deleting someone's data.
     public let evidence: String
+    /// True when macOS would not let us read the path to size it. The item is
+    /// still real and still belongs to the app — only the number is missing,
+    /// and saying so is better than printing a confident zero.
+    public var sizeIsUnknown: Bool = false
 
     public enum Kind: String, CaseIterable {
         case support = "Application Support"
@@ -49,6 +53,10 @@ public struct UninstallPlan {
     public var leftoverBytes: Int64 { leftovers.reduce(0) { $0 + $1.bytes } }
     public var totalBytes: Int64 { app.bundleBytes + leftoverBytes }
 
+    /// Items macOS would not let us measure. The uninstall total is therefore a
+    /// floor, not an estimate, and the review says so.
+    public var unmeasurable: [Leftover] { leftovers.filter(\.sizeIsUnknown) }
+
     public var grouped: [(kind: Leftover.Kind, items: [Leftover])] {
         Leftover.Kind.allCases.compactMap { kind in
             let items = leftovers.filter { $0.kind == kind }
@@ -77,7 +85,8 @@ public enum LeftoverFinder {
         // The inventory defers bundle measurement for speed; the uninstall
         // review must show a real number, so measure it here if it is missing.
         if app.bundleBytes == 0 {
-            app.bundleBytes = FileSize.measure(app.url).bytes
+            let url = app.url
+            app.bundleBytes = Guarded.run(budget: 20) { FileSize.measure(url).bytes } ?? 0
         }
         var found: [String: Leftover] = [:]
 
@@ -89,10 +98,37 @@ public enum LeftoverFinder {
         func add(_ url: URL, _ kind: Leftover.Kind, _ evidence: String) {
             let path = url.standardizedFileURL.path
             guard found[path] == nil else { return }
-            guard FileManager.default.fileExists(atPath: path) else { return }
             guard PathGuard.evaluate(url).isAllowed else { return }
-            let bytes = FileSize.measure(url).bytes
-            found[path] = Leftover(url: url, bytes: bytes, kind: kind, evidence: evidence)
+
+            // Sandbox containers and the other consent-gated stores are the
+            // reason this is not a straight `FileSize.measure`. Without Full
+            // Disk Access, reading one does not fail — it blocks in the kernel,
+            // forever, on a thread that can no longer be cancelled. Every app
+            // with a container would otherwise wedge its own uninstall review.
+            //
+            // The path is still reported, because it is genuinely the app's
+            // data and hiding it would make the uninstall incomplete. Only the
+            // size is left unknown.
+            if PrivacyAccess.requiresConsent(path) {
+                let exists = Guarded.run(budget: 1) {
+                    FileManager.default.fileExists(atPath: path)
+                } ?? false
+                guard exists else { return }
+                found[path] = Leftover(
+                    url: url, bytes: 0, kind: kind, evidence: evidence, sizeIsUnknown: true
+                )
+                return
+            }
+
+            guard FileManager.default.fileExists(atPath: path) else { return }
+            let measured = Guarded.run(budget: 6) { FileSize.measure(url).bytes }
+            found[path] = Leftover(
+                url: url,
+                bytes: measured ?? 0,
+                kind: kind,
+                evidence: evidence,
+                sizeIsUnknown: measured == nil
+            )
         }
 
         let home = PathGuard.home
@@ -263,11 +299,16 @@ public enum LeftoverFinder {
     }
 
     private static func scanDirectory(_ url: URL, _ body: (URL) -> Void) {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: url,
-            includingPropertiesForKeys: nil,
-            options: [.skipsHiddenFiles]
-        ) else { return }
-        for child in contents { body(child) }
+        // Bounded because two of the callers below are `~/Library/Containers`
+        // and `~/Library/Group Containers`, which macOS gates behind Full Disk
+        // Access. An unguarded listing of either never returns.
+        let contents = Guarded.run(budget: 3) {
+            try? FileManager.default.contentsOfDirectory(
+                at: url,
+                includingPropertiesForKeys: nil,
+                options: [.skipsHiddenFiles]
+            )
+        }
+        for child in (contents ?? nil) ?? [] { body(child) }
     }
 }

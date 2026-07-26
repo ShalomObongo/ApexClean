@@ -14,6 +14,23 @@ struct RemovalConfirmation: View {
 
     private var permanent: Bool { model.removalIsPermanent }
 
+    /// True when nothing from this pass will be recoverable afterwards.
+    private var isDestructive: Bool { permanent || model.emptiesTrashAfterCleaning }
+
+    private var headline: String {
+        let size = Bytes.format(model.selectedBytes)
+        if model.emptiesTrashAfterCleaning {
+            // Only add the Trash figure when it is actually known. Padding the
+            // headline with a number we could not measure would be theatre.
+            if case let .holding(bytes, _) = model.trashState {
+                let total = Bytes.format(model.selectedBytes + bytes - model.selectedTrashBytes)
+                return "Erase \(total) with no way back?"
+            }
+            return "Erase \(size) and the Trash, with no way back?"
+        }
+        return permanent ? "Delete \(size) permanently?" : "Move \(size) to the Trash?"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
@@ -25,6 +42,8 @@ struct RemovalConfirmation: View {
                 skipped
             }
             Divider().overlay(Palette.hairline(scheme))
+            emptyTrashOption
+            Divider().overlay(Palette.hairline(scheme))
             actions
         }
         .frame(width: 480)
@@ -35,16 +54,15 @@ struct RemovalConfirmation: View {
         HStack(alignment: .top, spacing: 14) {
             ZStack {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill((permanent ? Palette.caution : Palette.jade).opacity(0.14))
-                Image(systemName: permanent ? "exclamationmark.triangle.fill" : "trash")
+                    .fill((isDestructive ? Palette.caution : Palette.jade).opacity(0.14))
+                Image(systemName: isDestructive ? "exclamationmark.triangle.fill" : "trash")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(permanent ? Palette.caution : Palette.jade)
+                    .foregroundStyle(isDestructive ? Palette.caution : Palette.jade)
             }
             .frame(width: 42, height: 42)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(permanent ? "Delete \(Bytes.format(model.selectedBytes)) permanently?"
-                               : "Move \(Bytes.format(model.selectedBytes)) to the Trash?")
+                Text(headline)
                     .font(Typo.metric(18, weight: .bold))
                     .foregroundStyle(Palette.ink(scheme))
                     .fixedSize(horizontal: false, vertical: true)
@@ -97,12 +115,10 @@ struct RemovalConfirmation: View {
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(permanent ? "This cannot be undone" : "You can put it back")
+                Text(recoveryTitle)
                     .font(.system(size: 12.5, weight: .semibold))
                     .foregroundStyle(Palette.ink(scheme))
-                Text(permanent
-                     ? "Items already in the Trash cannot be moved to the Trash again, so these are erased from disk."
-                     : "Everything goes to the Trash with its original location intact, and every path is recorded in History.")
+                Text(recoveryDetail)
                     .font(Typo.caption)
                     .foregroundStyle(Palette.inkTertiary(scheme))
                     .fixedSize(horizontal: false, vertical: true)
@@ -110,6 +126,24 @@ struct RemovalConfirmation: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 13)
+    }
+
+    private var recoveryTitle: String {
+        if model.emptiesTrashAfterCleaning || permanent { return "This cannot be undone" }
+        return model.selectionMixesTrash ? "Most of this can be put back" : "You can put it back"
+    }
+
+    private var recoveryDetail: String {
+        if model.emptiesTrashAfterCleaning {
+            return "You chose to empty the Trash as part of this pass, so nothing here survives it. Every path is still recorded in History."
+        }
+        if permanent {
+            return "Items already in the Trash cannot be moved to the Trash again, so these are erased from disk."
+        }
+        if model.selectionMixesTrash {
+            return "Everything goes to the Trash except the \(Bytes.format(model.selectedTrashBytes)) already in it, which is erased — the Trash cannot hold itself twice."
+        }
+        return "Everything goes to the Trash with its original location intact, and every path is recorded in History."
     }
 
     private var skipped: some View {
@@ -134,6 +168,72 @@ struct RemovalConfirmation: View {
         .padding(.bottom, 13)
     }
 
+    /// Offered here rather than folded into the cleanup itself. Emptying the
+    /// Trash is the one action in this app with no way back, so it is opt-in
+    /// every time and says plainly that it also takes what is being moved there
+    /// by this very pass.
+    private var emptyTrashOption: some View {
+        Button {
+            model.emptiesTrashAfterCleaning.toggle()
+        } label: {
+            HStack(alignment: .top, spacing: 10) {
+                ApexCheckbox(
+                    isOn: $model.emptiesTrashAfterCleaning,
+                    tint: Palette.caution
+                )
+                .allowsHitTesting(false)
+                .padding(.top, 1)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 6) {
+                        Text("Empty the Trash afterwards")
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Palette.ink(scheme))
+                        if case let .holding(bytes, _) = model.trashState {
+                            Text("+\(Bytes.format(bytes))")
+                                .font(Typo.numeric(11, weight: .semibold))
+                                .foregroundStyle(Palette.caution)
+                        }
+                    }
+                    Text(emptyTrashExplanation)
+                        .font(Typo.caption)
+                        .foregroundStyle(
+                            model.emptiesTrashAfterCleaning
+                                ? Palette.caution
+                                : Palette.inkTertiary(scheme)
+                        )
+                        .fixedSize(horizontal: false, vertical: true)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 13)
+        .accessibilityLabel("Empty the Trash afterwards")
+        .accessibilityValue(model.emptiesTrashAfterCleaning ? "On" : "Off")
+        .accessibilityHint(emptyTrashExplanation)
+        .accessibilityAddTraits(.isToggle)
+    }
+
+    private var emptyTrashExplanation: String {
+        if model.emptiesTrashAfterCleaning {
+            return permanent
+                ? "The Trash will be erased. Nothing from this pass can be recovered."
+                : "Everything above is moved to the Trash and then erased with it. Nothing from this pass can be recovered."
+        }
+        switch model.trashState {
+        case let .holding(bytes, items):
+            return "\(Bytes.format(bytes)) in \(items) \(items == 1 ? "item" : "items") is already sitting in the Trash. Leave this off to keep today's cleanup recoverable."
+        case .empty:
+            return "The Trash is empty, so this would only erase what this pass puts there."
+        case .unreadable:
+            return "macOS keeps the Trash private unless ApexClean has Full Disk Access, so its size is unknown. Finder will empty it."
+        }
+    }
+
     private var blockedAppList: String {
         let names = Array(Set(model.skippedBlockedFindings.flatMap(\.blockedBy))).sorted()
         return ListPhrase.join(names)
@@ -145,9 +245,9 @@ struct RemovalConfirmation: View {
             ApexButton(title: "Cancel", kind: .quiet) { dismiss() }
                 .keyboardShortcut(.cancelAction)
             ApexButton(
-                title: permanent ? "Delete Permanently" : "Move to Trash",
+                title: confirmTitle,
                 symbol: "trash",
-                kind: .primary
+                kind: model.emptiesTrashAfterCleaning || permanent ? .destructive : .primary
             ) {
                 dismiss()
                 onConfirm()
@@ -156,6 +256,11 @@ struct RemovalConfirmation: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    private var confirmTitle: String {
+        if model.emptiesTrashAfterCleaning { return "Remove and Empty Trash" }
+        return permanent ? "Delete Permanently" : "Move to Trash"
     }
 }
 

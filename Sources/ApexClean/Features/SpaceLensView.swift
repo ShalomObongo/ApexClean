@@ -370,10 +370,28 @@ struct SpaceLensView: View {
                     .frame(maxWidth: .infinity)
                 }
 
-                ApexButton(title: "Move to Trash", symbol: "trash", kind: .destructive) {
+                ApexButton(
+                    title: model.removing.contains(node.id) ? "Moving to Trash" : "Move to Trash",
+                    symbol: "trash",
+                    kind: .destructive,
+                    isLoading: model.removing.contains(node.id)
+                ) {
                     model.moveToTrash(node)
                 }
                 .frame(maxWidth: .infinity)
+                .disabled(model.removing.contains(node.id))
+            }
+
+            if let error = model.removalError {
+                HStack(alignment: .top, spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 10))
+                        .foregroundStyle(Palette.caution)
+                    Text(error)
+                        .font(Typo.caption)
+                        .foregroundStyle(Palette.caution)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
 
             Text("Space Lens can act on personal files, so removals always go to the Trash and never bypass it.")

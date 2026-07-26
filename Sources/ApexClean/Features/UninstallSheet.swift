@@ -93,6 +93,15 @@ struct UninstallSheet: View {
                     title: "Everything goes to the Trash",
                     detail: "Nothing here is deleted outright. If something turns out to matter, restore it from the Trash."
                 )
+
+                if !plan.unmeasurable.isEmpty {
+                    warning(
+                        symbol: "lock.circle",
+                        tint: Palette.caution,
+                        title: "\(plan.unmeasurable.count) folders could not be measured",
+                        detail: "macOS keeps sandbox containers and a few other stores private unless ApexClean has Full Disk Access. They are listed and will still be removed — only the size is unknown, so the total above is a floor."
+                    )
+                }
             }
             .padding(20)
         }
@@ -130,6 +139,7 @@ struct UninstallSheet: View {
                     path: item.displayPath,
                     evidence: item.evidence,
                     bytes: item.bytes,
+                    sizeIsUnknown: item.sizeIsUnknown,
                     symbol: kind.symbol,
                     tint: item.evidence.contains("bundle identifier") ? Palette.jade : Palette.caution,
                     strong: false
@@ -144,6 +154,7 @@ struct UninstallSheet: View {
         path: String,
         evidence: String,
         bytes: Int64,
+        sizeIsUnknown: Bool = false,
         symbol: String,
         tint: Color,
         strong: Bool
@@ -182,9 +193,16 @@ struct UninstallSheet: View {
 
             Spacer(minLength: 6)
 
-            Text(Bytes.format(bytes))
-                .font(Typo.numeric(11, weight: .medium))
-                .foregroundStyle(Palette.inkSecondary(scheme))
+            if sizeIsUnknown {
+                Text("Size unknown")
+                    .font(Typo.caption)
+                    .foregroundStyle(Palette.inkTertiary(scheme))
+                    .help("macOS keeps this folder private unless ApexClean has Full Disk Access.")
+            } else {
+                Text(Bytes.format(bytes))
+                    .font(Typo.numeric(11, weight: .medium))
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+            }
         }
         .padding(10)
         .background(

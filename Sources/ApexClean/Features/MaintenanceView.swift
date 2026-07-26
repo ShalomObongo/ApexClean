@@ -124,34 +124,48 @@ private struct TaskCard: View {
     var body: some View {
         ApexCard(padding: 14, interactive: true, accent: accent) {
             VStack(alignment: .leading, spacing: 9) {
-                HStack(spacing: 11) {
-                    ApexCheckbox(
-                        isOn: Binding(get: { isSelected }, set: { _ in onToggle() })
-                    )
-                    .disabled(isRunning)
+                // The whole row toggles, not just the box. Aiming at a 16pt
+                // square to choose a task is a needless precision test, and
+                // every other row-with-a-checkbox in the app reads as clickable.
+                Button(action: { if !isRunning { onToggle() } }) {
+                    HStack(spacing: 11) {
+                        ApexCheckbox(
+                            isOn: Binding(get: { isSelected }, set: { _ in onToggle() })
+                        )
+                        .disabled(isRunning)
+                        .allowsHitTesting(false)
 
-                    GlyphTile(symbol: task.symbol, tint: accent ?? Palette.info, size: 30)
+                        GlyphTile(symbol: task.symbol, tint: accent ?? Palette.info, size: 30)
 
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(task.title)
-                            .font(Typo.cardTitle)
-                            .foregroundStyle(Palette.ink(scheme))
-                        Text(task.summary)
-                            .font(Typo.secondary)
-                            .foregroundStyle(Palette.inkTertiary(scheme))
-                            .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(task.title)
+                                .font(Typo.cardTitle)
+                                .foregroundStyle(Palette.ink(scheme))
+                            Text(task.summary)
+                                .font(Typo.secondary)
+                                .foregroundStyle(Palette.inkTertiary(scheme))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .multilineTextAlignment(.leading)
+                        }
+
+                        Spacer(minLength: 4)
+
+                        if isRunning {
+                            ProgressView().controlSize(.small).scaleEffect(0.7)
+                        } else if let result {
+                            Image(systemName: result.succeeded ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundStyle(result.succeeded ? Palette.jade : Palette.caution)
+                        }
                     }
-
-                    Spacer(minLength: 4)
-
-                    if isRunning {
-                        ProgressView().controlSize(.small).scaleEffect(0.7)
-                    } else if let result {
-                        Image(systemName: result.succeeded ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                            .font(.system(size: 14))
-                            .foregroundStyle(result.succeeded ? Palette.jade : Palette.caution)
-                    }
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .disabled(isRunning)
+                .accessibilityLabel(task.title)
+                .accessibilityValue(isSelected ? "Selected" : "Not selected")
+                .accessibilityHint(task.summary)
+                .accessibilityAddTraits(.isToggle)
 
                 if let result {
                     HStack(spacing: 6) {

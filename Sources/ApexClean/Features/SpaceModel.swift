@@ -22,6 +22,11 @@ final class SpaceModel: ObservableObject {
     /// Off by default so mapping Home never raises an unexpected consent
     /// dialog. Turning it on is a deliberate, explained choice.
     @Published var includesProtectedLocations = false
+    /// Node ids currently being moved to the Trash, so their button can show it.
+    @Published private(set) var removing: Set<String> = []
+    /// Surfaced when a removal was refused or failed. Silence after a click on
+    /// "Move to Trash" is indistinguishable from a broken app.
+    @Published var removalError: String?
 
     private var scanner: SpaceScanner?
     private let history: OperationLog
@@ -218,6 +223,7 @@ final class SpaceModel: ObservableObject {
         let historyRef = history
         let url = node.url
         let bytes = node.bytes
+        removing.insert(node.id)
         queue.async { [weak self] in
             let remover = Remover(history: historyRef)
             // Space Lens operates on real user documents, so the user-root guard
@@ -230,10 +236,23 @@ final class SpaceModel: ObservableObject {
             )
             _ = historyRef.commitSession(title: "Moved to Trash from Space Lens")
             DispatchQueue.main.async {
-                guard let self, outcome.removed.contains(url) else { return }
+                guard let self else { return }
+                self.removing.remove(node.id)
+                guard outcome.removed.contains(url) else {
+                    self.removalError = outcome.refused.first?.reason
+                        ?? outcome.failed.first?.error
+                        ?? "The item could not be moved to the Trash."
+                    return
+                }
                 self.largeFiles.removeAll { $0.url == url }
                 if self.selected == node { self.selected = nil }
-                self.scan(self.scanRoot)
+                if self.hovered == node { self.hovered = nil }
+                // Prune in place rather than rescanning: re-measuring a home
+                // folder takes minutes and the answer is already known.
+                withAnimation(Motion.stage) {
+                    node.parent?.prune(node)
+                    self.objectWillChange.send()
+                }
             }
         }
     }
@@ -241,6 +260,7 @@ final class SpaceModel: ObservableObject {
     func trashLargeFile(_ match: LargeFileFinder.Match) {
         let historyRef = history
         let url = match.url
+        removing.insert(url.path)
         queue.async { [weak self] in
             let remover = Remover(history: historyRef)
             let outcome = remover.remove(
@@ -251,9 +271,16 @@ final class SpaceModel: ObservableObject {
             )
             _ = historyRef.commitSession(title: "Moved large file to Trash")
             DispatchQueue.main.async {
-                guard outcome.removed.contains(url) else { return }
+                guard let self else { return }
+                self.removing.remove(url.path)
+                guard outcome.removed.contains(url) else {
+                    self.removalError = outcome.refused.first?.reason
+                        ?? outcome.failed.first?.error
+                        ?? "The file could not be moved to the Trash."
+                    return
+                }
                 withAnimation(Motion.enter) {
-                    self?.largeFiles.removeAll { $0.url == url }
+                    self.largeFiles.removeAll { $0.url == url }
                 }
             }
         }
