@@ -148,21 +148,36 @@ public final class MaintenanceRunner {
     // MARK: - Implementations
 
     private func flushDNS(_ task: MaintenanceTask) -> MaintenanceResult {
-        // dscacheutil -flushcache needs root. Without it we can still ask
-        // mDNSResponder to reload, which handles the common stale-record case.
+        // Both halves need root: mDNSResponder runs as `_mdnsresponder`, so a
+        // user-level SIGHUP is rejected outright. The previous version called
+        // `Shell.run`, which discards stderr *and* the exit status, so a refused
+        // signal came back as an empty string — non-nil — and was reported as
+        // "Resolver cache reloaded". It claimed to have done something it had
+        // never once succeeded at.
         guard let killall = Shell.which("killall") else {
             return .init(task: task, succeeded: false, detail: "killall unavailable", bytesFreed: 0)
         }
-        let result = Shell.run(killall, ["-HUP", "mDNSResponder"], timeout: 5)
-        if result != nil {
-            return .init(task: task, succeeded: true, detail: "Resolver cache reloaded", bytesFreed: 0)
+
+        let signal = Shell.runDetailed(killall, ["-HUP", "mDNSResponder"], timeout: 5)
+        guard signal.status == 0 else {
+            return .init(
+                task: task,
+                succeeded: false,
+                detail: "Needs administrator privileges — run "
+                    + "`sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder`",
+                bytesFreed: 0
+            )
         }
-        return .init(
-            task: task,
-            succeeded: false,
-            detail: "Needs administrator privileges to fully flush",
-            bytesFreed: 0
-        )
+
+        // The resolver reloaded, but the directory-service cache in front of it
+        // is a separate store and only root can clear it.
+        var detail = "Resolver cache reloaded"
+        if let dscacheutil = Shell.which("dscacheutil"),
+            Shell.runDetailed(dscacheutil, ["-flushcache"], timeout: 5).status == 0
+        {
+            detail = "Resolver reloaded and directory cache flushed"
+        }
+        return .init(task: task, succeeded: true, detail: detail, bytesFreed: 0)
     }
 
     private func rebuildQuickLook(_ task: MaintenanceTask) -> MaintenanceResult {
@@ -254,19 +269,47 @@ public final class MaintenanceRunner {
         let candidates = contents.filter {
             $0.pathExtension == "plist" && !$0.lastPathComponent.hasPrefix("com.apple.")
         }
-        for url in candidates.prefix(600) {
-            guard let output = Shell.run(plutil, ["-lint", url.path], timeout: 3) else { continue }
-            if !output.contains("OK") { broken.append(url) }
+        // Corruption is decided by `plutil`'s exit status, never by whether it
+        // printed anything.
+        //
+        // `plutil -lint` reports failures on **stderr** and exits 1, leaving
+        // stdout empty. The previous version used `Shell.run`, which discards
+        // stderr, so the test was really "produced no stdout" — and a timeout
+        // returns empty stdout too. Any plist slow enough to trip the 3-second
+        // budget was therefore classified as corrupt and moved to the Trash.
+        // A maintenance task must never destroy a valid file because a
+        // subprocess was slow.
+        let limit = 600
+        var timedOut = 0
+        for url in candidates.prefix(limit) {
+            let result = Shell.runDetailed(plutil, ["-lint", url.path], timeout: 3)
+            if result.timedOut || result.status < 0 {
+                timedOut += 1
+                continue
+            }
+            if result.status != 0 { broken.append(url) }
         }
 
+        var notes: [String] = []
+        if candidates.count > limit {
+            notes.append("checked the first \(limit) of \(candidates.count)")
+        }
+        if timedOut > 0 { notes.append("\(Count.files(timedOut)) could not be checked") }
+        let suffix = notes.isEmpty ? "" : " · " + notes.joined(separator: ", ")
+
         guard !broken.isEmpty else {
-            return .init(task: task, succeeded: true, detail: "All preference files valid", bytesFreed: 0)
+            return .init(
+                task: task,
+                succeeded: true,
+                detail: "All preference files valid" + suffix,
+                bytesFreed: 0
+            )
         }
         let outcome = Remover().remove(broken, disposal: .trash)
         return .init(
             task: task,
             succeeded: true,
-            detail: "Moved \(Count.files(outcome.removed.count)) to Trash",
+            detail: "Moved \(Count.files(outcome.removed.count)) to Trash" + suffix,
             bytesFreed: outcome.bytesReclaimed
         )
     }
@@ -318,19 +361,42 @@ public final class MaintenanceRunner {
     }
 
     private func verifyDisk(_ task: MaintenanceTask) -> MaintenanceResult {
-        guard let diskutil = Shell.which("diskutil"),
-            let output = Shell.run(diskutil, ["verifyVolume", "/"], timeout: 180)
-        else {
+        guard let diskutil = Shell.which("diskutil") else {
             return .init(task: task, succeeded: false, detail: "Verification unavailable", bytesFreed: 0)
         }
+
+        let result = Shell.runDetailed(diskutil, ["verifyVolume", "/"], timeout: 180)
+        if result.timedOut {
+            return .init(
+                task: task,
+                succeeded: false,
+                detail: "Verification did not finish in time — run it from Disk Utility",
+                bytesFreed: 0
+            )
+        }
+
+        let output = result.output
         let healthy =
-            output.localizedCaseInsensitiveContains("appears to be OK")
-            || output.localizedCaseInsensitiveContains("The volume /  appears to be OK")
+            result.status == 0 && output.localizedCaseInsensitiveContains("appears to be OK")
+
+        // A verification that found damage is a failed task, not a successful
+        // one with an ambiguous note. Reporting it as success meant the single
+        // most serious thing this app can discover was styled identically to a
+        // cache being emptied.
+        guard healthy else {
+            let damaged = ["error", "corrupt", "invalid", "problems were found"]
+                .contains { output.localizedCaseInsensitiveContains($0) }
+            return .init(
+                task: task,
+                succeeded: false,
+                detail: damaged
+                    ? "Filesystem problems found — repair with `sudo diskutil repairVolume /`"
+                    : "Verification was inconclusive — review Disk Utility",
+                bytesFreed: 0
+            )
+        }
+
         return .init(
-            task: task,
-            succeeded: true,
-            detail: healthy ? "Filesystem structure is sound" : "Verification finished — review Disk Utility",
-            bytesFreed: 0
-        )
+            task: task, succeeded: true, detail: "Filesystem structure is sound", bytesFreed: 0)
     }
 }
