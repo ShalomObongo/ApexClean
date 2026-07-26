@@ -2,16 +2,22 @@ import Foundation
 
 /// Human-readable byte formatting tuned for a cleanup UI: compact, stable width,
 /// and never showing more precision than the number deserves.
+///
+/// Units are **decimal**, because macOS is. Finder, Disk Utility, System
+/// Information and About This Mac have all reported storage in powers of 1000
+/// since Snow Leopard, and a cleanup app exists to be checked against them:
+/// dividing by 1024 while printing "GB" made a 500 GB SSD read as 466 GB, which
+/// a user reads as 34 GB of storage the app cannot account for.
 public enum Bytes {
     public static func format(_ bytes: Int64) -> String {
         let value = Double(max(0, bytes))
         if value < 1000 { return "\(Int(value)) B" }
 
         let units = ["KB", "MB", "GB", "TB", "PB"]
-        var scaled = value / 1024
+        var scaled = value / 1000
         var index = 0
         while scaled >= 1000, index < units.count - 1 {
-            scaled /= 1024
+            scaled /= 1000
             index += 1
         }
 
