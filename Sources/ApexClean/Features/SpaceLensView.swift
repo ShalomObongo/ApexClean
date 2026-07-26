@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 struct SpaceLensView: View {
     @EnvironmentObject private var state: AppState
@@ -36,7 +36,8 @@ struct SpaceLensView: View {
     private var privacyInvite: some View {
         PrivacyInviteCard(
             title: "Personal folders are excluded",
-            detail: "Desktop, Documents and Downloads are skipped so mapping your Home folder never raises a permission dialog on its own.",
+            detail:
+                "Desktop, Documents and Downloads are skipped so mapping your Home folder never raises a permission dialog on its own.",
             scopes: [.downloads, .desktop, .documents],
             isEnabled: Binding(
                 get: { model.includesProtectedLocations },
@@ -80,10 +81,12 @@ struct SpaceLensView: View {
             Text("Nothing mapped yet")
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
-            Text("Space Lens measures allocated size — the space you actually get back —\nand every removal goes to the Trash.")
-                .font(Typo.body)
-                .foregroundStyle(Palette.inkTertiary(scheme))
-                .multilineTextAlignment(.center)
+            Text(
+                "Space Lens measures allocated size — the space you actually get back —\nand every removal goes to the Trash."
+            )
+            .font(Typo.body)
+            .foregroundStyle(Palette.inkTertiary(scheme))
+            .multilineTextAlignment(.center)
             ApexButton(title: "Analyse Home folder", symbol: "house", size: .large) {
                 model.scan(PathGuard.home)
             }
@@ -114,10 +117,12 @@ struct SpaceLensView: View {
                 .lineLimit(2)
                 .truncationMode(.middle)
                 .frame(maxWidth: 480)
-            Text("Measuring stopped here, so no map was produced. Nothing on your Mac was\nchanged. This usually means a synced or removable folder is offline.")
-                .font(Typo.body)
-                .foregroundStyle(Palette.inkTertiary(scheme))
-                .multilineTextAlignment(.center)
+            Text(
+                "Measuring stopped here, so no map was produced. Nothing on your Mac was\nchanged. This usually means a synced or removable folder is offline."
+            )
+            .font(Typo.body)
+            .foregroundStyle(Palette.inkTertiary(scheme))
+            .multilineTextAlignment(.center)
             ApexButton(title: "Measure again without it", symbol: "arrow.clockwise", size: .large) {
                 model.retryWithoutStalledPath()
             }
@@ -170,7 +175,9 @@ struct SpaceLensView: View {
                         .accessibilityElement()
                         .accessibilityLabel("\(tile.node.name), \(Bytes.format(tile.node.bytes))")
                         .accessibilityValue(model.selected == tile.node ? "Selected" : "")
-                        .accessibilityHint(tile.node.hasChildren ? "Opens this folder in the map" : "Selects this item")
+                        .accessibilityHint(
+                            tile.node.hasChildren ? "Opens this folder in the map" : "Selects this item"
+                        )
                         .accessibilityAddTraits(.isButton)
                         .accessibilityAction { model.drill(into: tile.node) }
                         .contextMenu {
@@ -242,11 +249,13 @@ struct SpaceLensView: View {
                 .font(.system(size: 12, weight: .medium))
                 .foregroundStyle(Palette.caution)
             VStack(alignment: .leading, spacing: 2) {
-                Text(model.unreadablePaths.count == 1
-                     ? "1 folder didn’t respond and isn’t counted here"
-                     : "\(model.unreadablePaths.count) folders didn’t respond and aren’t counted here")
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.ink(scheme))
+                Text(
+                    model.unreadablePaths.count == 1
+                        ? "1 folder didn’t respond and isn’t counted here"
+                        : "\(model.unreadablePaths.count) folders didn’t respond and aren’t counted here"
+                )
+                .font(Typo.caption)
+                .foregroundStyle(Palette.ink(scheme))
                 Text(model.unreadablePaths.prefix(3).map(Glob.display).joined(separator: " · "))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Palette.inkTertiary(scheme))
@@ -277,9 +286,15 @@ struct SpaceLensView: View {
                                 .font(.system(size: 8, weight: .bold))
                                 .foregroundStyle(Palette.inkTertiary(scheme))
                         }
-                        Button { model.navigate(to: node) } label: {
+                        Button {
+                            model.navigate(to: node)
+                        } label: {
                             Text(node.name)
-                                .font(.system(size: 11.5, weight: index == model.breadcrumb.count - 1 ? .semibold : .regular))
+                                .font(
+                                    .system(
+                                        size: 11.5,
+                                        weight: index == model.breadcrumb.count - 1 ? .semibold : .regular)
+                                )
                                 .foregroundStyle(
                                     index == model.breadcrumb.count - 1
                                         ? Palette.ink(scheme)
@@ -394,10 +409,12 @@ struct SpaceLensView: View {
                 }
             }
 
-            Text("Space Lens can act on personal files, so removals always go to the Trash and never bypass it.")
-                .font(.system(size: 10.5))
-                .foregroundStyle(Palette.inkTertiary(scheme))
-                .fixedSize(horizontal: false, vertical: true)
+            Text(
+                "Space Lens can act on personal files, so removals always go to the Trash and never bypass it."
+            )
+            .font(.system(size: 10.5))
+            .foregroundStyle(Palette.inkTertiary(scheme))
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -405,7 +422,9 @@ struct SpaceLensView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Contents").eyebrowStyle(scheme)
             ForEach(model.tiles.prefix(24)) { node in
-                Button { model.select(node) } label: {
+                Button {
+                    model.select(node)
+                } label: {
                     HStack(spacing: 8) {
                         RoundedRectangle(cornerRadius: 2)
                             .fill(tileColor(depthIndex(for: node)))

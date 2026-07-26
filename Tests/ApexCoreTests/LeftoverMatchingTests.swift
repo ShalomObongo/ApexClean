@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 /// The uninstaller decides what belongs to an app. Over-matching here means

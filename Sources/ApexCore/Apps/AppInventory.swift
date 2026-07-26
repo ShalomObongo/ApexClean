@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 public struct InstalledApp: Identifiable, Hashable {
     public var id: String { url.path }
@@ -61,11 +61,13 @@ public enum AppInventory {
         var apps: [InstalledApp] = []
 
         for root in searchRoots {
-            guard let contents = try? FileManager.default.contentsOfDirectory(
-                at: root,
-                includingPropertiesForKeys: [.contentModificationDateKey, .addedToDirectoryDateKey],
-                options: [.skipsHiddenFiles]
-            ) else { continue }
+            guard
+                let contents = try? FileManager.default.contentsOfDirectory(
+                    at: root,
+                    includingPropertiesForKeys: [.contentModificationDateKey, .addedToDirectoryDateKey],
+                    options: [.skipsHiddenFiles]
+                )
+            else { continue }
 
             for url in contents where url.pathExtension == "app" {
                 guard !seen.contains(url.path) else { continue }
@@ -111,10 +113,12 @@ public enum AppInventory {
         let info = bundle.infoDictionary ?? [:]
 
         let bundleID = bundle.bundleIdentifier ?? ""
-        let name = (info["CFBundleDisplayName"] as? String)
+        let name =
+            (info["CFBundleDisplayName"] as? String)
             ?? (info["CFBundleName"] as? String)
             ?? url.deletingPathExtension().lastPathComponent
-        let version = (info["CFBundleShortVersionString"] as? String)
+        let version =
+            (info["CFBundleShortVersionString"] as? String)
             ?? (info["CFBundleVersion"] as? String)
             ?? "—"
 
@@ -129,14 +133,20 @@ public enum AppInventory {
         let hasReceipt = FileManager.default.fileExists(
             atPath: url.appendingPathComponent("Contents/_MASReceipt/receipt").path
         )
-        let token = url.deletingPathExtension().lastPathComponent.lowercased().replacingOccurrences(of: " ", with: "-")
+        let token = url.deletingPathExtension().lastPathComponent.lowercased().replacingOccurrences(
+            of: " ", with: "-")
         let isSystem = url.path.hasPrefix("/System/") || bundleID.hasPrefix("com.apple.")
 
         let source: InstalledApp.Source
-        if isSystem { source = .system }
-        else if hasReceipt { source = .appStore }
-        else if caskTokens.contains(token) { source = .homebrew }
-        else { source = .direct }
+        if isSystem {
+            source = .system
+        } else if hasReceipt {
+            source = .appStore
+        } else if caskTokens.contains(token) {
+            source = .homebrew
+        } else {
+            source = .direct
+        }
 
         return InstalledApp(
             url: url,
@@ -164,7 +174,7 @@ public enum HomebrewBridge {
 
     public static func installedCaskTokens() -> Set<String> {
         guard let brew = brewPath,
-              let output = Shell.run(brew, ["list", "--cask", "-1"], timeout: 12)
+            let output = Shell.run(brew, ["list", "--cask", "-1"], timeout: 12)
         else { return [] }
         return Set(output.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) })
     }
@@ -178,7 +188,7 @@ public enum HomebrewBridge {
 
     public static func outdatedCasks() -> [OutdatedCask] {
         guard let brew = brewPath,
-              let output = Shell.run(brew, ["outdated", "--cask", "--greedy", "--verbose"], timeout: 90)
+            let output = Shell.run(brew, ["outdated", "--cask", "--greedy", "--verbose"], timeout: 90)
         else { return [] }
         return parseOutdatedCasks(output)
     }
@@ -195,13 +205,13 @@ public enum HomebrewBridge {
         output.split(separator: "\n").compactMap { line in
             let text = String(line)
             guard let openParen = text.firstIndex(of: "("),
-                  let closeParen = text.range(of: ")", options: .backwards)?.lowerBound,
-                  openParen < closeParen,
-                  let separator = text.range(of: "!="),
-                  closeParen < separator.lowerBound
+                let closeParen = text.range(of: ")", options: .backwards)?.lowerBound,
+                openParen < closeParen,
+                let separator = text.range(of: "!="),
+                closeParen < separator.lowerBound
             else { return nil }
-            let token = String(text[text.startIndex ..< openParen]).trimmingCharacters(in: .whitespaces)
-            let current = String(text[text.index(after: openParen) ..< closeParen])
+            let token = String(text[text.startIndex..<openParen]).trimmingCharacters(in: .whitespaces)
+            let current = String(text[text.index(after: openParen)..<closeParen])
                 .trimmingCharacters(in: .whitespaces)
             let latest = String(text[separator.upperBound...]).trimmingCharacters(in: .whitespaces)
             guard !token.isEmpty, !current.isEmpty, !latest.isEmpty, current != latest else { return nil }
@@ -279,7 +289,8 @@ public enum HomebrewBridge {
         // is granted. brew reports it as a bare permissions error, which tells
         // nobody where to go.
         if haystack.contains("operation not permitted") || haystack.contains("permission denied") {
-            return "macOS blocked this. Allow ApexClean under Privacy & Security → App Management, then try again."
+            return
+                "macOS blocked this. Allow ApexClean under Privacy & Security → App Management, then try again."
         }
         return text ?? result.lastMeaningfulLine ?? "Homebrew reported an error"
     }

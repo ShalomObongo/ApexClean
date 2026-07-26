@@ -98,7 +98,10 @@ struct ApexButton: View {
         case .primary:
             LinearGradient(
                 colors: hovering
-                    ? [Palette.jade.mixed(with: .white, amount: 0.12), Palette.cyan.mixed(with: .white, amount: 0.12)]
+                    ? [
+                        Palette.jade.mixed(with: .white, amount: 0.12),
+                        Palette.cyan.mixed(with: .white, amount: 0.12),
+                    ]
                     : [Palette.jade, Palette.cyan],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing

@@ -58,14 +58,18 @@ public enum PowerSampler {
 
         // IOPowerSources gives the user-facing summary (percentage, time left).
         if let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue(),
-           let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef] {
+            let sources = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue() as? [CFTypeRef]
+        {
             for source in sources {
-                guard let description = IOPSGetPowerSourceDescription(blob, source)?
-                    .takeUnretainedValue() as? [String: Any] else { continue }
+                guard
+                    let description = IOPSGetPowerSourceDescription(blob, source)?
+                        .takeUnretainedValue() as? [String: Any]
+                else { continue }
 
                 vitals.hasBattery = true
                 if let current = description[kIOPSCurrentCapacityKey] as? Int,
-                   let max = description[kIOPSMaxCapacityKey] as? Int, max > 0 {
+                    let max = description[kIOPSMaxCapacityKey] as? Int, max > 0
+                {
                     vitals.percentage = Int((Double(current) / Double(max)) * 100)
                 }
                 vitals.isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
@@ -75,7 +79,8 @@ public enum PowerSampler {
                 if let minutes = description[kIOPSTimeToEmptyKey] as? Int, minutes > 0 {
                     vitals.timeRemainingMinutes = minutes
                 }
-                if vitals.isCharging, let minutes = description[kIOPSTimeToFullChargeKey] as? Int, minutes > 0 {
+                if vitals.isCharging, let minutes = description[kIOPSTimeToFullChargeKey] as? Int, minutes > 0
+                {
                     vitals.timeRemainingMinutes = minutes
                 }
             }
@@ -96,7 +101,7 @@ public enum PowerSampler {
 
         var unmanaged: Unmanaged<CFMutableDictionary>?
         guard IORegistryEntryCreateCFProperties(service, &unmanaged, kCFAllocatorDefault, 0) == KERN_SUCCESS,
-              let properties = unmanaged?.takeRetainedValue() as? [String: Any]
+            let properties = unmanaged?.takeRetainedValue() as? [String: Any]
         else { return }
 
         vitals.hasBattery = true
@@ -105,7 +110,8 @@ public enum PowerSampler {
         // Apple Silicon reports capacity in mAh under different keys depending on
         // the generation; take whichever pair is present and non-zero.
         let design = properties["DesignCapacity"] as? Int ?? 0
-        let maxCapacity = properties["AppleRawMaxCapacity"] as? Int
+        let maxCapacity =
+            properties["AppleRawMaxCapacity"] as? Int
             ?? properties["MaxCapacity"] as? Int
             ?? 0
         if design > 0, maxCapacity > 0 {

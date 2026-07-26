@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 
 public struct MemoryVitals: Equatable {
     public var total: Int64 = 0
@@ -50,7 +50,8 @@ public enum MemorySampler {
         vitals.free = Int64(stats.free_count) * pageSize
 
         // Activity Monitor's "Memory Used" = app memory + wired + compressed.
-        let appMemory = max(0, vitals.active + Int64(stats.internal_page_count) * pageSize - vitals.compressed)
+        let appMemory = max(
+            0, vitals.active + Int64(stats.internal_page_count) * pageSize - vitals.compressed)
         vitals.used = min(vitals.total, appMemory + vitals.wired + vitals.compressed)
 
         let swap = swapUsage()

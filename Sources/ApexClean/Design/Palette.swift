@@ -78,8 +78,8 @@ enum Palette {
     static func health(_ score: Int) -> Color {
         switch score {
         case 85...: positive
-        case 65 ..< 85: jade
-        case 45 ..< 65: caution
+        case 65..<85: jade
+        case 45..<65: caution
         default: alert
         }
     }

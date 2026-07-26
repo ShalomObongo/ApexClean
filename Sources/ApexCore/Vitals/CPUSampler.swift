@@ -1,5 +1,5 @@
-import Foundation
 import Darwin
+import Foundation
 
 public struct CPUVitals: Equatable {
     public var usage: Double = 0
@@ -51,7 +51,7 @@ public final class CPUSampler {
 
         var current: [(user: UInt32, system: UInt32, idle: UInt32, nice: UInt32)] = []
         current.reserveCapacity(Int(cpuCount))
-        for index in 0 ..< Int(cpuCount) {
+        for index in 0..<Int(cpuCount) {
             let base = index * Int(CPU_STATE_MAX)
             current.append(
                 (
@@ -66,11 +66,14 @@ public final class CPUSampler {
         defer { previousTicks = current }
         guard previousTicks.count == current.count, !previousTicks.isEmpty else { return vitals }
 
-        var totalUser = 0.0, totalSystem = 0.0, totalIdle = 0.0, totalAll = 0.0
+        var totalUser = 0.0
+        var totalSystem = 0.0
+        var totalIdle = 0.0
+        var totalAll = 0.0
         var perCore: [Double] = []
         perCore.reserveCapacity(current.count)
 
-        for index in 0 ..< current.count {
+        for index in 0..<current.count {
             let now = current[index]
             let before = previousTicks[index]
             let user = Double(now.user &- before.user)

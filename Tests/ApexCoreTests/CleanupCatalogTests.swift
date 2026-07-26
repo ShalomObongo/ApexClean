@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 final class CleanupCatalogTests: XCTestCase {
@@ -21,7 +22,8 @@ final class CleanupCatalogTests: XCTestCase {
 
     func testRuleIdentifiersAreUnique() {
         let ids = CleanupCatalog.all.map(\.id)
-        XCTAssertEqual(Set(ids).count, ids.count, "Duplicate rule identifiers would collide in selection state")
+        XCTAssertEqual(
+            Set(ids).count, ids.count, "Duplicate rule identifiers would collide in selection state")
     }
 
     /// No rule may target a directory PathGuard would refuse, otherwise the UI

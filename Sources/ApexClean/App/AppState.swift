@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 enum Destination: String, CaseIterable, Identifiable {
     case smartCare

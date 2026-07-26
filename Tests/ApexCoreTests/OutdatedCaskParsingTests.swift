@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 /// The update list is a claim about the user's machine, so the parser is
@@ -24,10 +25,10 @@ final class OutdatedCaskParsingTests: XCTestCase {
 
     func testIgnoresLinesThatAreNotUpgradeRecords() {
         let output = """
-        ==> Casks
-        not a record
-        firefox (140.0) != 141.0
-        """
+            ==> Casks
+            not a record
+            firefox (140.0) != 141.0
+            """
         let casks = HomebrewBridge.parseOutdatedCasks(output)
         XCTAssertEqual(casks.map(\.token), ["firefox"])
     }
@@ -55,8 +56,9 @@ final class UpgradeFailureReportingTests: XCTestCase {
     }
 
     func testQuotesHomebrewsOwnErrorLine() {
-        XCTAssertEqual(failure("==> Downloading\nError: invalid option: --no-quarantine"),
-                       "invalid option: --no-quarantine")
+        XCTAssertEqual(
+            failure("==> Downloading\nError: invalid option: --no-quarantine"),
+            "invalid option: --no-quarantine")
     }
 
     func testDoesNotMistakeQuarantineForQuit() {
@@ -64,8 +66,9 @@ final class UpgradeFailureReportingTests: XCTestCase {
     }
 
     func testRecognisesARunningApplication() {
-        XCTAssertEqual(failure("Error: Prismlauncher is currently running"),
-                       "Quit the app first, then try again.")
+        XCTAssertEqual(
+            failure("Error: Prismlauncher is currently running"),
+            "Quit the app first, then try again.")
     }
 
     func testRecognisesAPasswordRequirement() {

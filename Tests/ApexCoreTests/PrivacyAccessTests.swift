@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 /// Guards the property that makes the app safe to run unattended: an automatic

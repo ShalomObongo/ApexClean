@@ -1,6 +1,6 @@
-import SwiftUI
 import AppKit
 import QuartzCore
+import SwiftUI
 
 /// A continuously rotating arc, driven by Core Animation.
 ///

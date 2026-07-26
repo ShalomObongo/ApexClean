@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// The signature screen: scan, then group, explain, and approve.
 ///
@@ -54,7 +54,8 @@ struct SmartCareView: View {
         PageHeader(
             eyebrow: "Smart Care",
             title: greeting,
-            subtitle: "ApexClean looks first, then shows you everything it found. Nothing is removed until you approve it."
+            subtitle:
+                "ApexClean looks first, then shows you everything it found. Nothing is removed until you approve it."
         ) {
             if state.totalReclaimedEver > 0 {
                 VStack(alignment: .trailing, spacing: 2) {
@@ -70,9 +71,9 @@ struct SmartCareView: View {
     private var greeting: String {
         let hour = Calendar.current.component(.hour, from: Date())
         switch hour {
-        case 5 ..< 12: return "Good morning"
-        case 12 ..< 18: return "Good afternoon"
-        case 18 ..< 23: return "Good evening"
+        case 5..<12: return "Good morning"
+        case 12..<18: return "Good afternoon"
+        case 18..<23: return "Good evening"
         default: return "Still up?"
         }
     }
@@ -192,8 +193,10 @@ struct SmartCareView: View {
     private var selectionSummary: some View {
         HStack(spacing: 14) {
             Label {
-                Text("\(model.selectedFindings.count) of \(model.report.groups.flatMap(\.findings).count) groups approved")
-                    .font(Typo.secondary)
+                Text(
+                    "\(model.selectedFindings.count) of \(model.report.groups.flatMap(\.findings).count) groups approved"
+                )
+                .font(Typo.secondary)
             } icon: {
                 Image(systemName: "checkmark.circle.fill").font(.system(size: 11))
             }
@@ -358,13 +361,17 @@ struct SmartCareView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(Palette.info)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(model.report.stalledRules.count) \(model.report.stalledRules.count == 1 ? "location" : "locations") stopped responding")
-                        .font(Typo.cardTitle)
-                        .foregroundStyle(Palette.ink(scheme))
-                    Text("ApexClean moved on rather than waiting. This usually means macOS wants explicit permission for that folder, or it lives on a disconnected drive. Skipped: \(model.report.stalledRules.prefix(4).joined(separator: ", "))\(model.report.stalledRules.count > 4 ? "…" : "").")
-                        .font(Typo.secondary)
-                        .foregroundStyle(Palette.inkSecondary(scheme))
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "\(model.report.stalledRules.count) \(model.report.stalledRules.count == 1 ? "location" : "locations") stopped responding"
+                    )
+                    .font(Typo.cardTitle)
+                    .foregroundStyle(Palette.ink(scheme))
+                    Text(
+                        "ApexClean moved on rather than waiting. This usually means macOS wants explicit permission for that folder, or it lives on a disconnected drive. Skipped: \(model.report.stalledRules.prefix(4).joined(separator: ", "))\(model.report.stalledRules.count > 4 ? "…" : "")."
+                    )
+                    .font(Typo.secondary)
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+                    .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
@@ -374,7 +381,8 @@ struct SmartCareView: View {
     private var privacyInvite: some View {
         PrivacyInviteCard(
             title: "Downloads and Desktop are not scanned",
-            detail: "macOS protects these folders, so ApexClean leaves them alone unless you say otherwise. Nothing there is read until you include them.",
+            detail:
+                "macOS protects these folders, so ApexClean leaves them alone unless you say otherwise. Nothing there is read until you include them.",
             scopes: [.downloads, .desktop],
             isEnabled: Binding(
                 get: { model.includesProtectedLocations },
@@ -489,8 +497,11 @@ private struct GroupSummaryRow: View {
 
                     Button {
                         withAnimation(Motion.enter) {
-                            if isExpanded { model.expandedGroups.remove(group.id) }
-                            else { model.expandedGroups.insert(group.id) }
+                            if isExpanded {
+                                model.expandedGroups.remove(group.id)
+                            } else {
+                                model.expandedGroups.insert(group.id)
+                            }
                         }
                     } label: {
                         Image(systemName: "chevron.down")
@@ -554,7 +565,8 @@ struct FindingRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(finding.title)
                         .font(Typo.body)
-                        .foregroundStyle(finding.isBlocked ? Palette.inkTertiary(scheme) : Palette.ink(scheme))
+                        .foregroundStyle(
+                            finding.isBlocked ? Palette.inkTertiary(scheme) : Palette.ink(scheme))
                     Text(finding.risk.label)
                         .font(Typo.caption)
                         .foregroundStyle(Palette.inkTertiary(scheme))
@@ -563,7 +575,9 @@ struct FindingRow: View {
                 Spacer(minLength: 6)
 
                 if finding.isBlocked {
-                    Chip(text: "Quit \(finding.blockedBy.first ?? "app")", tint: Palette.caution, symbol: "hand.raised.fill")
+                    Chip(
+                        text: "Quit \(finding.blockedBy.first ?? "app")", tint: Palette.caution,
+                        symbol: "hand.raised.fill")
                 }
 
                 Text(Bytes.format(finding.bytes))

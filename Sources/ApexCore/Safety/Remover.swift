@@ -112,11 +112,13 @@ public final class Remover {
     @discardableResult
     public func emptyTrash(progress: ((Int, Int) -> Void)? = nil) -> Outcome {
         let trash = PathGuard.home.appendingPathComponent(".Trash")
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: trash,
-            includingPropertiesForKeys: nil,
-            options: []
-        ) else {
+        guard
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: trash,
+                includingPropertiesForKeys: nil,
+                options: []
+            )
+        else {
             return Self.emptyTrashViaFinder()
         }
 
@@ -161,10 +163,11 @@ public final class Remover {
             timeout: 300
         )
         if !result.succeeded {
-            outcome.failed.append((
-                PathGuard.home.appendingPathComponent(".Trash"),
-                result.lastMeaningfulLine ?? "Finder could not empty the Trash"
-            ))
+            outcome.failed.append(
+                (
+                    PathGuard.home.appendingPathComponent(".Trash"),
+                    result.lastMeaningfulLine ?? "Finder could not empty the Trash"
+                ))
         }
         return outcome
     }
@@ -181,11 +184,13 @@ public final class Remover {
 
     public static func inspectTrash() -> TrashState {
         let trash = PathGuard.home.appendingPathComponent(".Trash")
-        guard let contents = try? FileManager.default.contentsOfDirectory(
-            at: trash,
-            includingPropertiesForKeys: nil,
-            options: []
-        ) else { return .unreadable }
+        guard
+            let contents = try? FileManager.default.contentsOfDirectory(
+                at: trash,
+                includingPropertiesForKeys: nil,
+                options: []
+            )
+        else { return .unreadable }
 
         let visible = contents.filter { $0.lastPathComponent != ".DS_Store" }
         guard !visible.isEmpty else { return .empty }

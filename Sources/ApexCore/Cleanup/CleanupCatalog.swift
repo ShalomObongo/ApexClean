@@ -95,14 +95,21 @@ public enum CleanupCatalog {
         rules += [
             CleanupRule("Adobe application caches", "~/Library/Caches/Adobe/*", .userCaches),
             CleanupRule("Adobe app caches", "~/Library/Caches/com.adobe.*/*", .userCaches),
-            CleanupRule("Adobe media cache", "~/Library/Application Support/Adobe/Common/Media Cache Files/*", .userCaches, risk: .rebuildCost),
-            CleanupRule("Premiere Pro cache", "~/Library/Caches/com.adobe.PremierePro.*/*", .userCaches, risk: .rebuildCost),
-            CleanupRule("Final Cut Pro cache", "~/Library/Caches/com.apple.FinalCut/*", .userCaches, risk: .rebuildCost),
+            CleanupRule(
+                "Adobe media cache", "~/Library/Application Support/Adobe/Common/Media Cache Files/*",
+                .userCaches, risk: .rebuildCost),
+            CleanupRule(
+                "Premiere Pro cache", "~/Library/Caches/com.adobe.PremierePro.*/*", .userCaches,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Final Cut Pro cache", "~/Library/Caches/com.apple.FinalCut/*", .userCaches,
+                risk: .rebuildCost),
         ]
 
         // Apple first-party caches that are explicitly disposable.
         rules += [
-            CleanupRule("QuickLook thumbnails", "~/Library/Caches/com.apple.QuickLook.thumbnailcache", .userCaches),
+            CleanupRule(
+                "QuickLook thumbnails", "~/Library/Caches/com.apple.QuickLook.thumbnailcache", .userCaches),
             CleanupRule("QuickLook cache", "~/Library/Caches/Quick Look/*", .userCaches),
             CleanupRule("Icon services cache", "~/Library/Caches/com.apple.iconservices*", .userCaches),
             CleanupRule("Help system cache", "~/Library/Caches/com.apple.helpd/*", .userCaches),
@@ -110,17 +117,30 @@ public enum CleanupCatalog {
             CleanupRule("Apple Music cache", "~/Library/Caches/com.apple.Music", .userCaches),
             CleanupRule("Apple TV cache", "~/Library/Caches/com.apple.TV/*", .userCaches),
             CleanupRule("Podcasts cache", "~/Library/Caches/com.apple.podcasts", .userCaches),
-            CleanupRule("Album art cache", "~/Library/Containers/com.apple.AMPArtworkAgent/Data/Library/Caches/*", .userCaches),
-            CleanupRule("App Store cache", "~/Library/Containers/com.apple.AppStore/Data/Library/Caches/*", .userCaches),
-            CleanupRule("Photo analysis cache", "~/Library/Caches/com.apple.photoanalysisd", .userCaches, risk: .rebuildCost),
-            CleanupRule("Media analysis cache", "~/Library/Containers/com.apple.mediaanalysisd/Data/Library/Caches/*", .userCaches, risk: .rebuildCost),
+            CleanupRule(
+                "Album art cache", "~/Library/Containers/com.apple.AMPArtworkAgent/Data/Library/Caches/*",
+                .userCaches),
+            CleanupRule(
+                "App Store cache", "~/Library/Containers/com.apple.AppStore/Data/Library/Caches/*",
+                .userCaches),
+            CleanupRule(
+                "Photo analysis cache", "~/Library/Caches/com.apple.photoanalysisd", .userCaches,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Media analysis cache", "~/Library/Containers/com.apple.mediaanalysisd/Data/Library/Caches/*",
+                .userCaches, risk: .rebuildCost),
             CleanupRule("Siri suggestions cache", "~/Library/Suggestions/*", .userCaches),
             CleanupRule("Identity caches", "~/Library/IdentityCaches/*", .userCaches),
-            CleanupRule("Wallpaper agent cache", "~/Library/Containers/com.apple.wallpaper.agent/Data/Library/Caches/*", .userCaches),
-            CleanupRule("Stocks cache", "~/Library/Containers/com.apple.stocks/Data/Library/Caches/*", .userCaches),
+            CleanupRule(
+                "Wallpaper agent cache",
+                "~/Library/Containers/com.apple.wallpaper.agent/Data/Library/Caches/*", .userCaches),
+            CleanupRule(
+                "Stocks cache", "~/Library/Containers/com.apple.stocks/Data/Library/Caches/*", .userCaches),
             CleanupRule("Messages sticker cache", "~/Library/Messages/StickerCache/*", .userCaches),
-            CleanupRule("Messages preview cache", "~/Library/Messages/Caches/Previews/Attachments/*", .userCaches),
-            CleanupRule("WebKit network cache", "~/Library/Caches/com.apple.WebKit.Networking/*", .userCaches),
+            CleanupRule(
+                "Messages preview cache", "~/Library/Messages/Caches/Previews/Attachments/*", .userCaches),
+            CleanupRule(
+                "WebKit network cache", "~/Library/Caches/com.apple.WebKit.Networking/*", .userCaches),
         ]
 
         // Electron apps share one cache layout; enumerate the common ones.
@@ -131,21 +151,32 @@ public enum CleanupCatalog {
         for app in electronApps {
             rules += [
                 CleanupRule("\(app) HTTP cache", "~/Library/Application Support/\(app)/Cache/*", .userCaches),
-                CleanupRule("\(app) code cache", "~/Library/Application Support/\(app)/Code Cache/*", .userCaches),
-                CleanupRule("\(app) GPU cache", "~/Library/Application Support/\(app)/GPUCache/*", .userCaches),
-                CleanupRule("\(app) shader cache", "~/Library/Application Support/\(app)/DawnGraphiteCache/*", .userCaches),
-                CleanupRule("\(app) WebGPU cache", "~/Library/Application Support/\(app)/DawnWebGPUCache/*", .userCaches),
+                CleanupRule(
+                    "\(app) code cache", "~/Library/Application Support/\(app)/Code Cache/*", .userCaches),
+                CleanupRule(
+                    "\(app) GPU cache", "~/Library/Application Support/\(app)/GPUCache/*", .userCaches),
+                CleanupRule(
+                    "\(app) shader cache", "~/Library/Application Support/\(app)/DawnGraphiteCache/*",
+                    .userCaches),
+                CleanupRule(
+                    "\(app) WebGPU cache", "~/Library/Application Support/\(app)/DawnWebGPUCache/*",
+                    .userCaches),
             ]
         }
 
         rules += [
-            CleanupRule("Steam shader cache", "~/Library/Application Support/Steam/steamapps/shadercache/*", .userCaches),
+            CleanupRule(
+                "Steam shader cache", "~/Library/Application Support/Steam/steamapps/shadercache/*",
+                .userCaches),
             CleanupRule("Steam depot cache", "~/Library/Application Support/Steam/depotcache/*", .userCaches),
             CleanupRule("Steam web cache", "~/Library/Application Support/Steam/htmlcache/*", .userCaches),
             CleanupRule("Steam app cache", "~/Library/Application Support/Steam/appcache/*", .userCaches),
             CleanupRule("Battle.net cache", "~/Library/Application Support/Battle.net/Cache/*", .userCaches),
-            CleanupRule("Minecraft web cache", "~/Library/Application Support/minecraft/webcache*/*", .userCaches),
-            CleanupRule("Saved application states", "~/Library/Saved Application State/*.savedState", .userCaches, risk: .noticeable, minimumAgeDays: 30),
+            CleanupRule(
+                "Minecraft web cache", "~/Library/Application Support/minecraft/webcache*/*", .userCaches),
+            CleanupRule(
+                "Saved application states", "~/Library/Saved Application State/*.savedState", .userCaches,
+                risk: .noticeable, minimumAgeDays: 30),
         ]
 
         return rules
@@ -178,10 +209,15 @@ public enum CleanupCatalog {
     static var systemJunk: [CleanupRule] {
         [
             CleanupRule("User temporary files", "~/Library/Caches/TemporaryItems/*", .systemJunk),
-            CleanupRule("Incomplete Safari downloads", "~/Downloads/*.download", .systemJunk, risk: .noticeable),
-            CleanupRule("Incomplete Chrome downloads", "~/Downloads/*.crdownload", .systemJunk, risk: .noticeable),
+            CleanupRule(
+                "Incomplete Safari downloads", "~/Downloads/*.download", .systemJunk, risk: .noticeable),
+            CleanupRule(
+                "Incomplete Chrome downloads", "~/Downloads/*.crdownload", .systemJunk, risk: .noticeable),
             CleanupRule("Partial downloads", "~/Downloads/*.part", .systemJunk, risk: .noticeable),
-            CleanupRule("Recent items list", "~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.Recent*.sfl*", .systemJunk, risk: .noticeable),
+            CleanupRule(
+                "Recent items list",
+                "~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.Recent*.sfl*",
+                .systemJunk, risk: .noticeable),
             CleanupRule("Shell history backups", "~/.zsh_history.bak*", .systemJunk),
             CleanupRule("Bash history backups", "~/.bash_history.bak*", .systemJunk),
             CleanupRule("Zsh completion cache", "~/.zcompdump*", .systemJunk),
@@ -189,12 +225,17 @@ public enum CleanupCatalog {
             CleanupRule("wget HSTS cache", "~/.wget-hsts", .systemJunk),
             CleanupRule("Vim temporary files", "~/.viminfo.tmp", .systemJunk),
             CleanupRule("Git config lock", "~/.gitconfig.lock", .systemJunk),
-            CleanupRule("Homebrew download cache", "~/Library/Caches/Homebrew/downloads/*", .systemJunk, risk: .rebuildCost),
-            CleanupRule("Apple Media Services cache", "~/Library/Caches/com.apple.AppleMediaServices/*", .systemJunk),
+            CleanupRule(
+                "Homebrew download cache", "~/Library/Caches/Homebrew/downloads/*", .systemJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Apple Media Services cache", "~/Library/Caches/com.apple.AppleMediaServices/*", .systemJunk),
             CleanupRule("Duet Expert cache", "~/Library/Caches/com.apple.duetexpertd/*", .systemJunk),
             CleanupRule("Parsecd cache", "~/Library/Caches/com.apple.parsecd/*", .systemJunk),
             CleanupRule("Rosetta 2 update cache", "~/Library/Caches/com.apple.rosetta.update", .systemJunk),
-            CleanupRule("Wondershare installer payload", "~/Library/Application Support/com.wondershare.Installer/*", .systemJunk),
+            CleanupRule(
+                "Wondershare installer payload", "~/Library/Application Support/com.wondershare.Installer/*",
+                .systemJunk),
         ]
     }
 
@@ -213,7 +254,10 @@ public enum CleanupCatalog {
             ("Arc", "~/Library/Application Support/Arc/User Data", "company.thebrowser.Browser"),
             ("Dia", "~/Library/Application Support/Dia/User Data", "company.thebrowser.dia"),
             ("Opera", "~/Library/Application Support/com.operasoftware.Opera", "com.operasoftware.Opera"),
-            ("Yandex", "~/Library/Application Support/Yandex/YandexBrowser", "ru.yandex.desktop.yandex-browser"),
+            (
+                "Yandex", "~/Library/Application Support/Yandex/YandexBrowser",
+                "ru.yandex.desktop.yandex-browser"
+            ),
             ("Chromium", "~/Library/Application Support/Chromium", "org.chromium.Chromium"),
         ]
 
@@ -236,24 +280,50 @@ public enum CleanupCatalog {
                 )
             }
             rules += [
-                CleanupRule("\(browser.name) component cache", "\(browser.root)/component_crx_cache/*", .browserData, requiresQuit: [browser.quit]),
-                CleanupRule("\(browser.name) extension cache", "\(browser.root)/extensions_crx_cache/*", .browserData, requiresQuit: [browser.quit]),
-                CleanupRule("\(browser.name) crash reports", "\(browser.root)/Crashpad/completed/*", .browserData),
-                CleanupRule("\(browser.name) shader cache", "\(browser.root)/ShaderCache/*", .browserData, requiresQuit: [browser.quit]),
+                CleanupRule(
+                    "\(browser.name) component cache", "\(browser.root)/component_crx_cache/*", .browserData,
+                    requiresQuit: [browser.quit]),
+                CleanupRule(
+                    "\(browser.name) extension cache", "\(browser.root)/extensions_crx_cache/*", .browserData,
+                    requiresQuit: [browser.quit]),
+                CleanupRule(
+                    "\(browser.name) crash reports", "\(browser.root)/Crashpad/completed/*", .browserData),
+                CleanupRule(
+                    "\(browser.name) shader cache", "\(browser.root)/ShaderCache/*", .browserData,
+                    requiresQuit: [browser.quit]),
             ]
         }
 
         rules += [
-            CleanupRule("Chrome on-device models", "~/Library/Application Support/Google/Chrome/OptGuideOnDeviceModel/*", .browserData, risk: .rebuildCost),
-            CleanupRule("Chrome optimization models", "~/Library/Application Support/Google/Chrome/optimization_guide_model_store/*", .browserData, risk: .rebuildCost),
-            CleanupRule("Google updater cache", "~/Library/Application Support/Google/GoogleUpdater/crx_cache/*", .browserData),
-            CleanupRule("Safari cache", "~/Library/Caches/com.apple.Safari/*", .browserData, risk: .rebuildCost, requiresQuit: ["com.apple.Safari"]),
-            CleanupRule("Firefox profile cache", "~/Library/Application Support/Firefox/Profiles/*/cache2/*", .browserData, risk: .rebuildCost, requiresQuit: ["org.mozilla.firefox"]),
-            CleanupRule("Firefox cache", "~/Library/Caches/Firefox/*", .browserData, risk: .rebuildCost, requiresQuit: ["org.mozilla.firefox"]),
-            CleanupRule("Thunderbird cache", "~/Library/Caches/org.mozilla.thunderbird/*", .browserData, risk: .rebuildCost),
+            CleanupRule(
+                "Chrome on-device models",
+                "~/Library/Application Support/Google/Chrome/OptGuideOnDeviceModel/*", .browserData,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Chrome optimization models",
+                "~/Library/Application Support/Google/Chrome/optimization_guide_model_store/*", .browserData,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Google updater cache", "~/Library/Application Support/Google/GoogleUpdater/crx_cache/*",
+                .browserData),
+            CleanupRule(
+                "Safari cache", "~/Library/Caches/com.apple.Safari/*", .browserData, risk: .rebuildCost,
+                requiresQuit: ["com.apple.Safari"]),
+            CleanupRule(
+                "Firefox profile cache", "~/Library/Application Support/Firefox/Profiles/*/cache2/*",
+                .browserData, risk: .rebuildCost, requiresQuit: ["org.mozilla.firefox"]),
+            CleanupRule(
+                "Firefox cache", "~/Library/Caches/Firefox/*", .browserData, risk: .rebuildCost,
+                requiresQuit: ["org.mozilla.firefox"]),
+            CleanupRule(
+                "Thunderbird cache", "~/Library/Caches/org.mozilla.thunderbird/*", .browserData,
+                risk: .rebuildCost),
             CleanupRule("Zen cache", "~/Library/Caches/zen/*", .browserData, risk: .rebuildCost),
-            CleanupRule("Orion cache", "~/Library/Caches/com.kagi.kagimacOS/*", .browserData, risk: .rebuildCost),
-            CleanupRule("Arc cache", "~/Library/Caches/company.thebrowser.Browser/*", .browserData, risk: .rebuildCost),
+            CleanupRule(
+                "Orion cache", "~/Library/Caches/com.kagi.kagimacOS/*", .browserData, risk: .rebuildCost),
+            CleanupRule(
+                "Arc cache", "~/Library/Caches/company.thebrowser.Browser/*", .browserData, risk: .rebuildCost
+            ),
         ]
 
         return rules
@@ -338,24 +408,48 @@ public enum CleanupCatalog {
 
         // Xcode. Derived data is the single biggest win on most developer Macs.
         rules += [
-            CleanupRule("Xcode derived data", "~/Library/Developer/Xcode/DerivedData/*", .developerJunk, risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
-            CleanupRule("Xcode archives", "~/Library/Developer/Xcode/Archives/*", .developerJunk, risk: .noticeable, minimumAgeDays: 90),
-            CleanupRule("Xcode build products", "~/Library/Developer/Xcode/Products/*", .developerJunk, risk: .rebuildCost),
-            CleanupRule("Xcode documentation cache", "~/Library/Developer/Xcode/DocumentationCache/*", .developerJunk, risk: .rebuildCost),
-            CleanupRule("Xcode module cache", "~/Library/Developer/Xcode/ModuleCache.noindex/*", .developerJunk, risk: .rebuildCost),
-            CleanupRule("Xcode cache", "~/Library/Caches/com.apple.dt.Xcode/*", .developerJunk, risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
-            CleanupRule("Simulator caches", "~/Library/Developer/CoreSimulator/Caches/*", .developerJunk, risk: .rebuildCost),
-            CleanupRule("Simulator temp files", "~/Library/Developer/CoreSimulator/Devices/*/data/tmp/*", .developerJunk),
-            CleanupRule("Interface Builder cache", "~/Library/Developer/Xcode/UserData/IB Support/*", .developerJunk),
-            CleanupRule("Android Studio cache", "~/Library/Caches/Google/AndroidStudio*/*", .developerJunk, risk: .rebuildCost),
-            CleanupRule("JetBrains caches", "~/Library/Caches/JetBrains/*", .developerJunk, risk: .rebuildCost),
+            CleanupRule(
+                "Xcode derived data", "~/Library/Developer/Xcode/DerivedData/*", .developerJunk,
+                risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
+            CleanupRule(
+                "Xcode archives", "~/Library/Developer/Xcode/Archives/*", .developerJunk, risk: .noticeable,
+                minimumAgeDays: 90),
+            CleanupRule(
+                "Xcode build products", "~/Library/Developer/Xcode/Products/*", .developerJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Xcode documentation cache", "~/Library/Developer/Xcode/DocumentationCache/*", .developerJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Xcode module cache", "~/Library/Developer/Xcode/ModuleCache.noindex/*", .developerJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Xcode cache", "~/Library/Caches/com.apple.dt.Xcode/*", .developerJunk, risk: .rebuildCost,
+                requiresQuit: ["com.apple.dt.Xcode"]),
+            CleanupRule(
+                "Simulator caches", "~/Library/Developer/CoreSimulator/Caches/*", .developerJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "Simulator temp files", "~/Library/Developer/CoreSimulator/Devices/*/data/tmp/*",
+                .developerJunk),
+            CleanupRule(
+                "Interface Builder cache", "~/Library/Developer/Xcode/UserData/IB Support/*", .developerJunk),
+            CleanupRule(
+                "Android Studio cache", "~/Library/Caches/Google/AndroidStudio*/*", .developerJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "JetBrains caches", "~/Library/Caches/JetBrains/*", .developerJunk, risk: .rebuildCost),
             CleanupRule("Expo caches", "~/.expo/*-cache/*", .developerJunk, risk: .rebuildCost),
             CleanupRule("Vagrant temporary files", "~/.vagrant.d/tmp/*", .developerJunk),
             CleanupRule("Jupyter runtime cache", "~/.jupyter/runtime/*", .developerJunk),
             CleanupRule("Oh My Zsh cache", "~/.oh-my-zsh/cache/*", .developerJunk),
             CleanupRule("VS Code cache", "~/Library/Application Support/Code/Cache/*", .developerJunk),
-            CleanupRule("VS Code cached data", "~/Library/Application Support/Code/CachedData/*", .developerJunk, risk: .rebuildCost),
-            CleanupRule("VS Code extension cache", "~/Library/Application Support/Code/CachedExtensions/*", .developerJunk, risk: .rebuildCost),
+            CleanupRule(
+                "VS Code cached data", "~/Library/Application Support/Code/CachedData/*", .developerJunk,
+                risk: .rebuildCost),
+            CleanupRule(
+                "VS Code extension cache", "~/Library/Application Support/Code/CachedExtensions/*",
+                .developerJunk, risk: .rebuildCost),
         ]
 
         return rules
@@ -369,21 +463,28 @@ public enum CleanupCatalog {
             CleanupRule("PyTorch model cache", "~/.cache/torch/*", .aiTools, risk: .rebuildCost),
             CleanupRule("TensorFlow cache", "~/.cache/tensorflow/*", .aiTools, risk: .rebuildCost),
             CleanupRule("Weights & Biases cache", "~/.cache/wandb/*", .aiTools),
-            CleanupRule("LM Studio cache", "~/Library/Caches/com.lmstudio.lmstudio/*", .aiTools, risk: .rebuildCost),
+            CleanupRule(
+                "LM Studio cache", "~/Library/Caches/com.lmstudio.lmstudio/*", .aiTools, risk: .rebuildCost),
             CleanupRule("Ollama temporary blobs", "~/.ollama/models/blobs/*-partial*", .aiTools),
             CleanupRule("ChatGPT desktop cache", "~/Library/Caches/com.openai.chat/*", .aiTools),
-            CleanupRule("Claude desktop cache", "~/Library/Caches/com.anthropic.claudefordesktop/*", .aiTools),
+            CleanupRule(
+                "Claude desktop cache", "~/Library/Caches/com.anthropic.claudefordesktop/*", .aiTools),
             CleanupRule("Claude sentry cache", "~/Library/Application Support/Claude/sentry/*", .aiTools),
-            CleanupRule("Claude pending uploads", "~/Library/Application Support/Claude/pending-uploads/*", .aiTools),
+            CleanupRule(
+                "Claude pending uploads", "~/Library/Application Support/Claude/pending-uploads/*", .aiTools),
             CleanupRule("Claude logs", "~/Library/Logs/Claude/*", .aiTools),
             CleanupRule("OpenCode cache", "~/.cache/opencode/*", .aiTools),
             CleanupRule("OpenCode logs", "~/.local/share/opencode/log/*", .aiTools),
             CleanupRule("Copilot CLI cache", "~/.copilot/cache/*", .aiTools),
             CleanupRule("Cursor cache", "~/Library/Application Support/Cursor/Cache/*", .aiTools),
-            CleanupRule("Cursor cached data", "~/Library/Application Support/Cursor/CachedData/*", .aiTools, risk: .rebuildCost),
+            CleanupRule(
+                "Cursor cached data", "~/Library/Application Support/Cursor/CachedData/*", .aiTools,
+                risk: .rebuildCost),
             CleanupRule("Cursor GPU cache", "~/Library/Application Support/Cursor/GPUCache/*", .aiTools),
             CleanupRule("Windsurf cache", "~/Library/Application Support/Windsurf/Cache/*", .aiTools),
-            CleanupRule("Windsurf cached data", "~/Library/Application Support/Windsurf/CachedData/*", .aiTools, risk: .rebuildCost),
+            CleanupRule(
+                "Windsurf cached data", "~/Library/Application Support/Windsurf/CachedData/*", .aiTools,
+                risk: .rebuildCost),
             CleanupRule("Zed language server cache", "~/Library/Caches/Zed/*", .aiTools, risk: .rebuildCost),
         ]
     }
@@ -392,11 +493,20 @@ public enum CleanupCatalog {
 
     static var installers: [CleanupRule] {
         [
-            CleanupRule("Downloaded disk images", "~/Downloads/*.dmg", .installers, risk: .noticeable, minimumAgeDays: 14),
-            CleanupRule("Downloaded packages", "~/Downloads/*.pkg", .installers, risk: .noticeable, minimumAgeDays: 14),
-            CleanupRule("Downloaded installers", "~/Downloads/*.mpkg", .installers, risk: .noticeable, minimumAgeDays: 14),
-            CleanupRule("Desktop disk images", "~/Desktop/*.dmg", .installers, risk: .noticeable, minimumAgeDays: 14),
-            CleanupRule("Homebrew cask downloads", "~/Library/Caches/Homebrew/Cask/*", .installers, risk: .rebuildCost),
+            CleanupRule(
+                "Downloaded disk images", "~/Downloads/*.dmg", .installers, risk: .noticeable,
+                minimumAgeDays: 14),
+            CleanupRule(
+                "Downloaded packages", "~/Downloads/*.pkg", .installers, risk: .noticeable, minimumAgeDays: 14
+            ),
+            CleanupRule(
+                "Downloaded installers", "~/Downloads/*.mpkg", .installers, risk: .noticeable,
+                minimumAgeDays: 14),
+            CleanupRule(
+                "Desktop disk images", "~/Desktop/*.dmg", .installers, risk: .noticeable, minimumAgeDays: 14),
+            CleanupRule(
+                "Homebrew cask downloads", "~/Library/Caches/Homebrew/Cask/*", .installers, risk: .rebuildCost
+            ),
         ]
     }
 }

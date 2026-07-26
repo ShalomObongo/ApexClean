@@ -18,7 +18,7 @@ public enum Glob {
 
         var urls: [URL] = []
         urls.reserveCapacity(count)
-        for index in 0 ..< count {
+        for index in 0..<count {
             guard let raw = paths[index] else { continue }
             var path = String(cString: raw)
             // GLOB_MARK appends "/" to directories; URL handles that, but the

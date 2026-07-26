@@ -19,8 +19,8 @@ public struct HealthScore: Equatable {
     public var band: Band {
         switch value {
         case 85...: .excellent
-        case 65 ..< 85: .good
-        case 45 ..< 65: .fair
+        case 65..<85: .good
+        case 45..<65: .fair
         default: .needsAttention
         }
     }
@@ -85,7 +85,8 @@ public enum HealthEvaluator {
             .init(
                 name: "Memory pressure",
                 deduction: memoryDeduction,
-                detail: "\(memory.pressureLabel) · \(Bytes.format(memory.used)) of \(Bytes.format(memory.total)) used"
+                detail:
+                    "\(memory.pressureLabel) · \(Bytes.format(memory.used)) of \(Bytes.format(memory.total)) used"
             )
         )
 

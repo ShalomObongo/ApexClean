@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 struct MaintenanceView: View {
     @EnvironmentObject private var state: AppState
@@ -28,7 +28,8 @@ struct MaintenanceView: View {
         PageHeader(
             eyebrow: "Maintenance",
             title: "Bounded, explainable tasks",
-            subtitle: "Each task states exactly what it does. None of them claim to make your Mac faster on their own."
+            subtitle:
+                "Each task states exactly what it does. None of them claim to make your Mac faster on their own."
         ) {
             ApexButton(
                 title: model.isRunning
@@ -101,10 +102,12 @@ struct MaintenanceView: View {
                     Text("What maintenance actually does")
                         .font(Typo.cardTitle)
                         .foregroundStyle(Palette.ink(scheme))
-                    Text("macOS already runs its own periodic maintenance and manages memory well on its own. These tasks repair specific broken states — a stale cache, a preference file an app can no longer read, a startup item pointing at a program that no longer exists. They are useful when something is wrong, and largely a no-op when nothing is. ApexClean will tell you which of those happened.")
-                        .font(Typo.secondary)
-                        .foregroundStyle(Palette.inkSecondary(scheme))
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text(
+                        "macOS already runs its own periodic maintenance and manages memory well on its own. These tasks repair specific broken states — a stale cache, a preference file an app can no longer read, a startup item pointing at a program that no longer exists. They are useful when something is wrong, and largely a no-op when nothing is. ApexClean will tell you which of those happened."
+                    )
+                    .font(Typo.secondary)
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+                    .fixedSize(horizontal: false, vertical: true)
                 }
             }
         }
@@ -153,9 +156,12 @@ private struct TaskCard: View {
                         if isRunning {
                             ProgressView().controlSize(.small).scaleEffect(0.7)
                         } else if let result {
-                            Image(systemName: result.succeeded ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
-                                .font(.system(size: 14))
-                                .foregroundStyle(result.succeeded ? Palette.jade : Palette.caution)
+                            Image(
+                                systemName: result.succeeded
+                                    ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+                            )
+                            .font(.system(size: 14))
+                            .foregroundStyle(result.succeeded ? Palette.jade : Palette.caution)
                         }
                     }
                     .contentShape(Rectangle())

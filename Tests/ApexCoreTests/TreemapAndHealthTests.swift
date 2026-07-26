@@ -1,4 +1,5 @@
 import XCTest
+
 @testable import ApexCore
 
 final class TreemapTests: XCTestCase {
@@ -30,13 +31,14 @@ final class TreemapTests: XCTestCase {
 
         let big = tiles.first { $0.node.name == "big" }!
         let small = tiles.first { $0.node.name == "small" }!
-        let ratio = Double(big.rect.width * big.rect.height)
+        let ratio =
+            Double(big.rect.width * big.rect.height)
             / Double(small.rect.width * small.rect.height)
         XCTAssertEqual(ratio, 3.0, accuracy: 0.15, "A 3:1 size ratio should give a 3:1 area ratio")
     }
 
     func testTilesStayInsideBounds() {
-        let nodes = (1 ... 20).map { node("n\($0)", Int64(21 - $0) * 100) }
+        let nodes = (1...20).map { node("n\($0)", Int64(21 - $0) * 100) }
         let bounds = CGRect(x: 0, y: 0, width: 640, height: 480)
         for tile in Treemap.layout(nodes, in: bounds) {
             XCTAssertGreaterThanOrEqual(tile.rect.minX, -0.5)

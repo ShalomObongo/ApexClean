@@ -1,5 +1,5 @@
-import Foundation
 import AppKit
+import Foundation
 
 /// Access checks for the directories macOS protects behind a privacy consent
 /// prompt (Desktop, Documents, Downloads, and the wider Full Disk Access set).
@@ -137,7 +137,9 @@ public enum PrivacyAccess {
 
         if consentGatedPrefixes.contains(where: {
             standardized == $0 || standardized.hasPrefix($0 + "/")
-        }) { return true }
+        }) {
+            return true
+        }
 
         // Sandbox containers, both per-app and shared group containers.
         //
@@ -174,9 +176,11 @@ public enum PrivacyAccess {
     /// because it shows the user exactly what they are granting and to whom.
     @MainActor
     public static func openPrivacySettings() {
-        guard let url = URL(
-            string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
-        ) else { return }
+        guard
+            let url = URL(
+                string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+            )
+        else { return }
         NSWorkspace.shared.open(url)
     }
 }

@@ -1,5 +1,5 @@
-import Foundation
 import Combine
+import Foundation
 
 /// Coordinates all samplers behind one observable object.
 ///

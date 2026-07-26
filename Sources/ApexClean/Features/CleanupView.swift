@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// The expert surface: every finding, every path, per-category filtering.
 struct CleanupView: View {
@@ -72,36 +72,36 @@ struct CleanupView: View {
     private var categoryFilter: some View {
         FlowLayout(spacing: 7, lineSpacing: 7) {
             ForEach(CleanupCategory.allCases) { category in
-                    let enabled = model.enabledCategories.contains(category)
-                    let tint = Palette.category(category.rawValue)
-                    Button {
-                        withAnimation(Motion.tactile) {
-                            if enabled, model.enabledCategories.count > 1 {
-                                model.enabledCategories.remove(category)
-                            } else {
-                                model.enabledCategories.insert(category)
-                            }
+                let enabled = model.enabledCategories.contains(category)
+                let tint = Palette.category(category.rawValue)
+                Button {
+                    withAnimation(Motion.tactile) {
+                        if enabled, model.enabledCategories.count > 1 {
+                            model.enabledCategories.remove(category)
+                        } else {
+                            model.enabledCategories.insert(category)
                         }
-                    } label: {
-                        HStack(spacing: 5) {
-                            Image(systemName: category.symbol).font(.system(size: 9, weight: .bold))
-                            Text(category.title).font(Typo.caption)
-                        }
-                        .foregroundStyle(enabled ? tint : Palette.inkTertiary(scheme))
-                        .padding(.horizontal, 9)
-                        .padding(.vertical, 5)
-                        .background(
-                            Capsule().fill(enabled ? tint.opacity(0.13) : Color.clear)
-                        )
-                        .overlay(
-                            Capsule().strokeBorder(
-                                enabled ? tint.opacity(0.3) : Palette.hairline(scheme),
-                                lineWidth: 1
-                            )
-                        )
                     }
-                    .buttonStyle(.plain)
-                    .help(enabled ? "Included in scans" : "Excluded from scans")
+                } label: {
+                    HStack(spacing: 5) {
+                        Image(systemName: category.symbol).font(.system(size: 9, weight: .bold))
+                        Text(category.title).font(Typo.caption)
+                    }
+                    .foregroundStyle(enabled ? tint : Palette.inkTertiary(scheme))
+                    .padding(.horizontal, 9)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule().fill(enabled ? tint.opacity(0.13) : Color.clear)
+                    )
+                    .overlay(
+                        Capsule().strokeBorder(
+                            enabled ? tint.opacity(0.3) : Palette.hairline(scheme),
+                            lineWidth: 1
+                        )
+                    )
+                }
+                .buttonStyle(.plain)
+                .help(enabled ? "Included in scans" : "Excluded from scans")
             }
         }
         .padding(.bottom, 4)
@@ -116,10 +116,12 @@ struct CleanupView: View {
             Text("Nothing scanned yet")
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
-            Text("ApexClean never inspects your Mac in the background.\nRun a scan when you want to see what can be reclaimed.")
-                .font(Typo.body)
-                .foregroundStyle(Palette.inkTertiary(scheme))
-                .multilineTextAlignment(.center)
+            Text(
+                "ApexClean never inspects your Mac in the background.\nRun a scan when you want to see what can be reclaimed."
+            )
+            .font(Typo.body)
+            .foregroundStyle(Palette.inkTertiary(scheme))
+            .multilineTextAlignment(.center)
             ApexButton(title: "Scan now", symbol: "sparkles", size: .large) { model.scan() }
                 .padding(.top, 4)
             Spacer()
@@ -133,9 +135,11 @@ struct CleanupView: View {
                 Text("\(Bytes.format(model.selectedBytes)) selected")
                     .font(Typo.metric(16, weight: .bold))
                     .foregroundStyle(Palette.ink(scheme))
-                Text("\(Count.files(model.selectedFileCount)) across \(Count.groups(model.selectedFindings.count)) · \(model.removalIsPermanent ? "deleted permanently" : "moved to Trash")")
-                    .font(Typo.caption)
-                    .foregroundStyle(Palette.inkTertiary(scheme))
+                Text(
+                    "\(Count.files(model.selectedFileCount)) across \(Count.groups(model.selectedFindings.count)) · \(model.removalIsPermanent ? "deleted permanently" : "moved to Trash")"
+                )
+                .font(Typo.caption)
+                .foregroundStyle(Palette.inkTertiary(scheme))
             }
 
             Spacer()

@@ -158,7 +158,9 @@ public enum PathGuard {
         }
 
         // A symlink is removed as a link; we never chase it into foreign storage.
-        if let values = try? target.resourceValues(forKeys: [.isSymbolicLinkKey]), values.isSymbolicLink == true {
+        if let values = try? target.resourceValues(forKeys: [.isSymbolicLinkKey]),
+            values.isSymbolicLink == true
+        {
             return .allowed
         }
 

@@ -35,11 +35,13 @@ struct StateView: View {
                     .foregroundStyle(Palette.inkSecondary(scheme))
 
             case .empty(let symbol, let title, let message),
-                 .idle(let symbol, let title, let message):
+                .idle(let symbol, let title, let message):
                 Image(systemName: symbol)
                     .font(.system(size: 38, weight: .light))
-                    .foregroundStyle(isIdle ? AnyShapeStyle(Palette.accentGradient)
-                                            : AnyShapeStyle(Palette.inkTertiary(scheme)))
+                    .foregroundStyle(
+                        isIdle
+                            ? AnyShapeStyle(Palette.accentGradient)
+                            : AnyShapeStyle(Palette.inkTertiary(scheme)))
                 Text(title)
                     .font(Typo.metric(18))
                     .foregroundStyle(Palette.ink(scheme))

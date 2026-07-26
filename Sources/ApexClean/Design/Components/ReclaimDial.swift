@@ -1,5 +1,5 @@
-import SwiftUI
 import ApexCore
+import SwiftUI
 
 /// The signature hero.
 ///
@@ -131,7 +131,8 @@ struct ReclaimDial: View {
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         ),
-                        style: StrokeStyle(lineWidth: highlighted == segment.id ? thickness + 4 : thickness, lineCap: .butt)
+                        style: StrokeStyle(
+                            lineWidth: highlighted == segment.id ? thickness + 4 : thickness, lineCap: .butt)
                     )
                     .rotationEffect(.degrees(-90))
                     .opacity(appeared ? (dimmed ? 0.24 : 1) : 0)
