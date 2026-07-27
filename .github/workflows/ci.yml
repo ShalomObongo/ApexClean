@@ -91,7 +91,7 @@ jobs:
           sw_vers
 
       - name: Cache build products
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .build
           key: ${{ matrix.os }}-${{ matrix.configuration }}-spm-${{ hashFiles('Package.swift', 'Sources/**/*.swift', 'Tests/**/*.swift') }}
