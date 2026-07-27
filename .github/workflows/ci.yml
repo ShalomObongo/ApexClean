@@ -30,7 +30,7 @@ jobs:
     name: Static analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Lint workflow definitions
         run: |
@@ -51,7 +51,7 @@ jobs:
     name: Formatting
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Report toolchain
         run: swift --version
@@ -82,7 +82,7 @@ jobs:
         os: [macos-14, macos-15]
         configuration: [debug, release]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Report toolchain
         run: |
@@ -152,7 +152,7 @@ jobs:
     runs-on: macos-15
     needs: [test]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Build universal app bundle
         env:
@@ -240,7 +240,7 @@ jobs:
     name: License compliance
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Verify license and attribution
         run: |
