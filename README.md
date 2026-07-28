@@ -300,6 +300,27 @@ device, because there is no code capable of sending it.
 
 It also goes out of its way *not* to ask for permissions.
 
+**Permissions are settled once, in setup — not sprung on you mid-scan.** A four-step
+assistant runs on first launch: what the app is, the three rules it will not break,
+permissions, and a summary. Every row says what the permission enables and what
+specifically stops working without it.
+
+| Permission | What it unlocks | Without it |
+| :--- | :--- | :--- |
+| **Full Disk Access** | Measuring the Trash, sizing sandbox containers during an uninstall | Trash shows as unreadable, some folders report "Size unknown" |
+| **Desktop, Documents, Downloads** | Finding installers and forgotten downloads; mapping these folders | They are skipped entirely — no scan ever reads them |
+| **Finder automation** | Emptying the Trash on your behalf | You empty it yourself |
+| **App Management** | Replacing an app in place when installing an update | An update may be blocked and you finish it manually |
+
+Full Disk Access and App Management have **no request API at any privilege level**, so
+those rows open the exact Settings pane and say so, rather than pretending to ask.
+Nothing is probed until you have been asked about it — probing an undecided permission
+is itself what raises the dialog this flow exists to prevent.
+
+Your answers persist. Granting Full Disk Access makes macOS quit and reopen the app, so
+setup remembers where you were and resumes there instead of starting over. Re-runnable
+any time from **ApexClean › Set Up ApexClean…**
+
 <details>
 <summary><b>Why a cleaner that avoids permission prompts is a better cleaner</b></summary>
 
