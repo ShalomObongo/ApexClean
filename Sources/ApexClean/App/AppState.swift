@@ -101,11 +101,15 @@ final class AppState: ObservableObject {
         totalReclaimedEver = history.totalReclaimed()
         lastCleanSummary = history.recentSessions(limit: 1).first
 
+        // `self` is bound before the Task, not inside it. Swift 5.9 — which is
+        // what the macOS 14 toolchain ships — rejects reading a weak binding
+        // from concurrently-executing code, so unwrapping in the Task body
+        // fails to compile on the oldest supported OS.
         NotificationCenter.default.addObserver(
             forName: .onboardingDidFinish, object: nil, queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 withAnimation(Motion.stage) { self.isOnboarding = false }
                 self.applyPrivacyPreference()
             }
@@ -114,8 +118,8 @@ final class AppState: ObservableObject {
         NotificationCenter.default.addObserver(
             forName: .privacyScopeDidChange, object: nil, queue: .main
         ) { [weak self] _ in
+            guard let self else { return }
             Task { @MainActor in
-                guard let self else { return }
                 self.applyPrivacyPreference()
             }
         }

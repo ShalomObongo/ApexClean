@@ -76,8 +76,12 @@ public enum MemorySampler {
         // machine the result was 5.68 GiB against a true 6.35 GiB, and the sign
         // of the error follows compressor occupancy — so it over-reports just
         // as readily as it under-reports.
-        let appMemory = max(
-            0, Int64(stats.internal_page_count - stats.purgeable_count) * pageSize)
+        // Widened before subtracting: both counts are `natural_t`, so doing the
+        // arithmetic at 32 bits would trap the whole app rather than return a
+        // negative number if purgeable ever exceeded anonymous.
+        let anonymous = Int64(stats.internal_page_count)
+        let purgeable = Int64(stats.purgeable_count)
+        let appMemory = max(0, (anonymous - purgeable) * pageSize)
         vitals.used = min(vitals.total, appMemory + vitals.wired + vitals.compressed)
 
         let swap = swapUsage()
