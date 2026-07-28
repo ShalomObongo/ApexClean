@@ -216,16 +216,32 @@ struct ApplicationsView: View {
                 } else if model.isCheckingUpdates {
                     loadingCard("Checking Homebrew for updates…")
                 } else if model.outdated.isEmpty {
-                    ApexCard {
+                    // An empty list after a failed check is not good news, and
+                    // must never be styled as though it were.
+                    let failed = model.updateCheckFailed
+                    ApexCard(accent: failed ? Palette.caution : nil) {
                         HStack(spacing: 12) {
-                            GlyphTile(symbol: "checkmark.seal", tint: Palette.jade, size: 32)
+                            GlyphTile(
+                                symbol: failed ? "exclamationmark.triangle" : "checkmark.seal",
+                                tint: failed ? Palette.caution : Palette.jade,
+                                size: 32
+                            )
                             VStack(alignment: .leading, spacing: 2) {
-                                Text("Everything Homebrew manages is current")
-                                    .font(Typo.cardTitle)
-                                    .foregroundStyle(Palette.ink(scheme))
-                                Text("Checked \(model.outdated.isEmpty ? "just now" : "")")
-                                    .font(Typo.secondary)
-                                    .foregroundStyle(Palette.inkTertiary(scheme))
+                                Text(
+                                    failed
+                                        ? "The update check did not finish"
+                                        : "Everything Homebrew manages is current"
+                                )
+                                .font(Typo.cardTitle)
+                                .foregroundStyle(Palette.ink(scheme))
+                                Text(
+                                    failed
+                                        ? "Homebrew did not answer in time, so this is not a "
+                                            + "result — try again."
+                                        : "Checked just now"
+                                )
+                                .font(Typo.secondary)
+                                .foregroundStyle(Palette.inkTertiary(scheme))
                             }
                             Spacer()
                             ApexButton(

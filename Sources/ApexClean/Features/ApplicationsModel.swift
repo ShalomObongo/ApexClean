@@ -117,15 +117,20 @@ final class ApplicationsModel: ObservableObject {
         }
     }
 
+    /// True when the last check did not finish, so an empty list means "we do
+    /// not know" rather than "nothing is outdated".
+    @Published private(set) var updateCheckFailed = false
+
     func checkUpdates() {
         guard HomebrewBridge.isAvailable, !isCheckingUpdates else { return }
         isCheckingUpdates = true
         queue.async { [weak self] in
-            let outdated = HomebrewBridge.outdatedCasks()
+            let result = HomebrewBridge.outdatedCaskResult()
             DispatchQueue.main.async {
                 guard let self else { return }
                 withAnimation(Motion.enter) {
-                    self.outdated = outdated
+                    self.outdated = result.casks
+                    self.updateCheckFailed = !result.isReliable
                     self.isCheckingUpdates = false
                 }
             }

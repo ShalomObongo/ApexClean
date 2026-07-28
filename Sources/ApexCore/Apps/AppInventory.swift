@@ -186,11 +186,47 @@ public enum HomebrewBridge {
         public let latestVersion: String
     }
 
+    /// Whether the update check produced a trustworthy answer.
+    ///
+    /// An empty list is ambiguous — it means "nothing is outdated" *or* "the
+    /// command never finished" — and the two must not look the same to the
+    /// user.
+    public struct OutdatedResult {
+        public let casks: [OutdatedCask]
+        public let didComplete: Bool
+        public var isReliable: Bool { didComplete }
+    }
+
     public static func outdatedCasks() -> [OutdatedCask] {
-        guard let brew = brewPath,
-            let output = Shell.run(brew, ["outdated", "--cask", "--greedy", "--verbose"], timeout: 90)
-        else { return [] }
-        return parseOutdatedCasks(output)
+        outdatedCaskResult().casks
+    }
+
+    public static func outdatedCaskResult() -> OutdatedResult {
+        guard let brew = brewPath else { return OutdatedResult(casks: [], didComplete: false) }
+
+        // `HOMEBREW_NO_AUTO_UPDATE` is the difference between a check and a
+        // gamble. Without it, `brew outdated` first runs a full `brew update`,
+        // which fetches every tap over the network. On a slow connection that
+        // alone can exceed the timeout — and a timed-out check returned an
+        // empty list, which the UI rendered as "everything is up to date".
+        // Reporting "no updates" because the check never ran is the one answer
+        // an update feature must never give.
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "HOMEBREW_NO_AUTO_UPDATE": "1",
+            "HOMEBREW_NO_ANALYTICS": "1",
+            "HOMEBREW_NO_ENV_HINTS": "1",
+        ]) { _, new in new }
+
+        let result = Shell.runDetailed(
+            brew,
+            ["outdated", "--cask", "--greedy", "--verbose"],
+            timeout: 90,
+            environment: environment
+        )
+        guard !result.timedOut, result.status >= 0 else {
+            return OutdatedResult(casks: [], didComplete: false)
+        }
+        return OutdatedResult(casks: parseOutdatedCasks(result.output), didComplete: true)
     }
 
     /// Parses `brew outdated --cask --greedy --verbose`, whose lines read
