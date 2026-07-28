@@ -59,6 +59,34 @@ final class PathGuardTests: XCTestCase {
         }
     }
 
+    /// macOS is case-insensitive by default, so the guard has to be too.
+    ///
+    /// `~/documents/thesis.txt` and `~/Documents/thesis.txt` are the same file.
+    /// The protection for irreplaceable data compared case-sensitively, so only
+    /// one of the two spellings was refused and the other was allowed through.
+    func testProtectionIsNotDefeatedByCasing() {
+        for path in [
+            "/Documents/thesis.txt", "/documents/thesis.txt", "/DOCUMENTS/thesis.txt",
+            "/Desktop/notes.md", "/desktop/notes.md",
+            "/.ssh/id_ed25519", "/.SSH/id_ed25519",
+            "/Pictures/wedding.heic", "/pictures/wedding.heic",
+        ] {
+            XCTAssertFalse(
+                PathGuard.evaluate(URL(fileURLWithPath: home.path + path)).isAllowed,
+                "\(path) must be refused regardless of casing"
+            )
+        }
+    }
+
+    func testTopLevelDirectoriesAreRefusedRegardlessOfCasing() {
+        for path in ["/system", "/LIBRARY", "/applications", "/Users"] {
+            XCTAssertFalse(
+                PathGuard.evaluate(URL(fileURLWithPath: path)).isAllowed,
+                "\(path) must be refused regardless of casing"
+            )
+        }
+    }
+
     func testRefusesShallowPaths() {
         // Two components is always too coarse to be a legitimate cleanup target.
         XCTAssertFalse(PathGuard.evaluate(URL(fileURLWithPath: "/tmp/anything")).isAllowed)

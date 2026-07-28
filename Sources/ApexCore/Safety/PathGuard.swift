@@ -24,23 +24,21 @@ public enum PathGuard {
 
     /// A removal target must live under exactly one of these. Anything else is
     /// outside the blast radius ApexClean is willing to operate in.
-    private static var permittedRoots: [String] {
-        [
-            home.path,
-            "/Library/Caches",
-            "/Library/Logs",
-            "/private/var/folders",
-            "/var/folders",
-            "/private/tmp",
-            "/tmp",
-            "/Users/Shared",
-            "/Applications",
-            "/Volumes",
-        ]
-    }
+    private static let permittedRoots: [String] = [
+        home.path,
+        "/Library/Caches",
+        "/Library/Logs",
+        "/private/var/folders",
+        "/var/folders",
+        "/private/tmp",
+        "/tmp",
+        "/Users/Shared",
+        "/Applications",
+        "/Volumes",
+    ]
 
     /// Paths that must never be removed, matched exactly (after standardizing).
-    private static var immovable: Set<String> {
+    private static let immovable: Set<String> = {
         var paths: Set<String> = [
             "/", "/System", "/Library", "/Applications", "/Users", "/Volumes",
             "/private", "/private/var", "/private/tmp", "/tmp", "/bin", "/sbin",
@@ -64,11 +62,11 @@ public enum PathGuard {
             paths.insert(h + leaf)
         }
         return paths
-    }
+    }()
 
     /// Directories whose *contents* are irreplaceable user data. Even a nested
     /// path underneath these is refused unless a narrower rule vouches for it.
-    private static var sacredSubtrees: [String] {
+    private static let sacredSubtrees: [String] = {
         let h = home.path
         return [
             "\(h)/Documents", "\(h)/Desktop", "\(h)/Pictures", "\(h)/Movies",
@@ -80,6 +78,26 @@ public enum PathGuard {
             "/System", "/bin", "/sbin", "/usr/bin", "/usr/sbin", "/etc", "/dev",
             "/Library/Keychains", "/private/var/db",
         ]
+    }()
+
+    // MARK: - Case folding
+
+    /// macOS volumes are case-insensitive by default, so `~/documents/thesis`
+    /// and `~/Documents/thesis` are the *same file*. Every comparison below was
+    /// case-sensitive, which meant a differently-cased path walked straight past
+    /// the protection for irreplaceable personal data: `~/Documents/thesis.txt`
+    /// was refused, and `~/documents/thesis.txt` was allowed.
+    ///
+    /// Folding case for every comparison is deliberately the over-protective
+    /// choice. On a case-sensitive volume it may refuse a genuinely distinct
+    /// directory that merely looks like a protected one — which is the correct
+    /// direction to be wrong in for a guard that exists to fail closed.
+    private static let loweredImmovable: Set<String> = Set(immovable.map { $0.lowercased() })
+    private static let loweredSacredSubtrees: [String] = sacredSubtrees.map { $0.lowercased() }
+    private static let loweredPermittedRoots: [String] = permittedRoots.map { $0.lowercased() }
+
+    private static func isWithin(_ path: String, anyOf roots: [String]) -> Bool {
+        roots.contains { path == $0 || path.hasPrefix($0 + "/") }
     }
 
     /// Substring rules that protect system UI surfaces which visibly break when
@@ -125,7 +143,8 @@ public enum PathGuard {
             return .refused(reason: "Path traversal is not permitted")
         }
 
-        if immovable.contains(path) {
+        let lowered = path.lowercased()
+        if loweredImmovable.contains(lowered) {
             return .refused(reason: "This is a system or top-level directory")
         }
 
@@ -154,13 +173,11 @@ public enum PathGuard {
             return .refused(reason: "Belongs to an endpoint-security agent")
         }
 
-        if !allowUserRoots {
-            for subtree in sacredSubtrees where path == subtree || path.hasPrefix(subtree + "/") {
-                return .refused(reason: "Contains irreplaceable personal data")
-            }
+        if !allowUserRoots, isWithin(lowered, anyOf: loweredSacredSubtrees) {
+            return .refused(reason: "Contains irreplaceable personal data")
         }
 
-        guard permittedRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) else {
+        guard isWithin(lowered, anyOf: loweredPermittedRoots) else {
             return .refused(reason: "Outside the directories ApexClean may modify")
         }
 
@@ -175,16 +192,17 @@ public enum PathGuard {
         // used to smuggle a target out of the permitted roots.
         let resolved = normalize(target.resolvingSymlinksInPath().path)
         if resolved != path {
-            if immovable.contains(resolved) {
+            let loweredResolved = resolved.lowercased()
+            if loweredImmovable.contains(loweredResolved) {
                 return .refused(reason: "Resolves to a system directory")
             }
-            if !allowUserRoots {
-                for subtree in sacredSubtrees where resolved == subtree || resolved.hasPrefix(subtree + "/") {
-                    return .refused(reason: "Resolves into irreplaceable personal data")
-                }
+            if !allowUserRoots, isWithin(loweredResolved, anyOf: loweredSacredSubtrees) {
+                return .refused(reason: "Resolves into irreplaceable personal data")
             }
-            let resolvedRoots = permittedRoots + ["/private" + home.path, "/System/Volumes/Data"]
-            guard resolvedRoots.contains(where: { resolved == $0 || resolved.hasPrefix($0 + "/") }) else {
+            let resolvedRoots =
+                loweredPermittedRoots
+                + ["/private\(home.path)".lowercased(), "/system/volumes/data"]
+            guard isWithin(loweredResolved, anyOf: resolvedRoots) else {
                 return .refused(reason: "Resolves outside the permitted directories")
             }
         }
