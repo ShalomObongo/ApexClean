@@ -34,7 +34,17 @@ public final class OperationLog {
     public init() {
         directory = PathGuard.home
             .appendingPathComponent("Library/Application Support/ApexClean", isDirectory: true)
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // 0700. The history is a list of every path this app has removed —
+        // project directories, filenames, the contents of the user's Trash —
+        // and it was being written 0644 inside a 0755 directory. Containment
+        // rested entirely on `~/Library/Application Support` happening to be
+        // private, which is not something to depend on across a restored home
+        // folder, a shared machine, or any other app holding Full Disk Access.
+        try? FileManager.default.createDirectory(
+            at: directory,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
     }
 
     private var entriesURL: URL { directory.appendingPathComponent("operations.json") }
@@ -104,5 +114,9 @@ public final class OperationLog {
         encoder.dateEncodingStrategy = .iso8601
         guard let data = try? encoder.encode(value) else { return }
         try? data.write(to: url, options: .atomic)
+        // `.atomic` replaces the file, so the mode has to be reapplied after
+        // every write rather than set once at creation.
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 }

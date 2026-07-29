@@ -11,6 +11,12 @@ public final class Remover {
         public var bytesReclaimed: Int64 = 0
         public var filesRemoved: Int = 0
         public var trashed: Int = 0
+        /// Where trashed items ended up.
+        ///
+        /// Kept so a Trash sweep in the same run can delete this pass's own
+        /// items without charging for them a second time: moving a file to the
+        /// Trash and then emptying it frees the space once, not twice.
+        public var trashedLocations: [URL] = []
 
         public var isEmpty: Bool { removed.isEmpty && refused.isEmpty && failed.isEmpty }
     }
@@ -61,11 +67,19 @@ public final class Remover {
             }
 
             do {
-                let usedTrash = try dispose(url, disposal: disposal)
+                let disposed = try dispose(url, disposal: disposal)
+                let usedTrash: Bool
+                switch disposed {
+                case let .trashed(location):
+                    usedTrash = true
+                    outcome.trashed += 1
+                    if let location { outcome.trashedLocations.append(location) }
+                case .deleted:
+                    usedTrash = false
+                }
                 outcome.removed.append(url)
                 outcome.bytesReclaimed += measurement.bytes
                 outcome.filesRemoved += max(1, measurement.fileCount)
-                if usedTrash { outcome.trashed += 1 }
                 history?.record(
                     .init(
                         path: url.path,
@@ -75,32 +89,51 @@ public final class Remover {
                     )
                 )
             } catch {
-                outcome.failed.append((url, error.localizedDescription))
+                // A Trash request that could not be honoured is reported as a
+                // failure, not quietly completed as a permanent deletion.
+                let reason =
+                    disposal == .trash
+                    ? "Could not be moved to the Trash, so nothing was removed — "
+                        + "\(error.localizedDescription)"
+                    : error.localizedDescription
+                outcome.failed.append((url, reason))
             }
         }
 
         return outcome
     }
 
-    /// Returns true when the item landed in the Trash and is therefore recoverable.
-    private func dispose(_ url: URL, disposal: Disposal) throws -> Bool {
+    /// The outcome of disposing of a single item.
+    private enum Disposed {
+        /// Moved to the Trash, and recoverable from the returned location.
+        case trashed(URL?)
+        /// Unlinked. Only ever the result of an explicit `.delete` request.
+        case deleted
+    }
+
+    /// Disposes of one item, or throws.
+    ///
+    /// A failed `trashItem` used to fall through to `removeItem`, turning a
+    /// request the user approved on the promise "you can put it back" into a
+    /// permanent deletion — and saying nothing. That is worst on exactly the
+    /// volumes where it fails: an external disk or a network share with no
+    /// `.Trashes`, where the selection is likely to be the user's own files
+    /// rather than caches. It now refuses, and the caller reports it.
+    ///
+    /// Mole behaves the same way: a failed trash is logged and skipped, never
+    /// escalated to `rm` (`lib/core/file_ops.sh:839-859`).
+    private func dispose(_ url: URL, disposal: Disposal) throws -> Disposed {
         // Items already in the Trash cannot be trashed again.
         let inTrash = url.path.hasPrefix(PathGuard.home.appendingPathComponent(".Trash").path)
 
         if disposal == .trash, !inTrash {
-            do {
-                var resulting: NSURL?
-                try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
-                return true
-            } catch {
-                // Trash can legitimately fail (other volumes, no .Trashes). Fall
-                // through to a direct unlink only for targets we already vouched for.
-                Log.safety.notice("Trash unavailable for \(url.path, privacy: .public), removing directly")
-            }
+            var resulting: NSURL?
+            try FileManager.default.trashItem(at: url, resultingItemURL: &resulting)
+            return .trashed(resulting as URL?)
         }
 
         try FileManager.default.removeItem(at: url)
-        return false
+        return .deleted
     }
 
     /// Empties the user Trash. Separated from `remove` because the Trash is the
@@ -110,8 +143,29 @@ public final class Remover {
     /// the normal case: the Trash is Full Disk Access territory, and refusing to
     /// work at all would be a worse answer than asking Finder to do it.
     @discardableResult
-    public func emptyTrash(progress: ((Int, Int) -> Void)? = nil) -> Outcome {
+    /// - Parameter alreadyCounted: Trash locations this run just created. They
+    ///   are still erased, but contribute no bytes and no second history entry,
+    ///   because moving a file to the Trash and then emptying it reclaims its
+    ///   space once. Counting both inflated a real 1.24 GB clean to "3.02 GB",
+    ///   and `totalReclaimed()` carried the error forever.
+    public func emptyTrash(
+        alreadyCounted: [URL] = [],
+        progress: ((Int, Int) -> Void)? = nil
+    ) -> Outcome {
         let trash = PathGuard.home.appendingPathComponent(".Trash")
+
+        // The Trash is erased with a direct unlink, so the one structural
+        // assumption behind that — it is a real directory in this home folder,
+        // not a link pointing somewhere else — is checked rather than assumed.
+        // Mole refuses the same case (`lib/core/file_ops.sh:1055-1057`).
+        guard let attributes = try? FileManager.default.attributesOfItem(atPath: trash.path),
+            attributes[.type] as? FileAttributeType == .typeDirectory
+        else {
+            var refused = Outcome()
+            refused.refused.append((trash, "The Trash is not a regular directory"))
+            return refused
+        }
+
         guard
             let contents = try? FileManager.default.contentsOfDirectory(
                 at: trash,
@@ -122,15 +176,21 @@ public final class Remover {
             return Self.emptyTrashViaFinder()
         }
 
+        let counted = Set(alreadyCounted.map { $0.standardizedFileURL.path })
         var outcome = Outcome()
         for (index, url) in contents.enumerated() {
             defer { progress?(index + 1, contents.count) }
-            let measurement = FileSize.measure(url)
+            let isDoubleCount = counted.contains(url.standardizedFileURL.path)
+            let measurement =
+                isDoubleCount
+                ? FileSize.Measurement(bytes: 0, fileCount: 0)
+                : FileSize.measure(url)
             do {
                 try FileManager.default.removeItem(at: url)
                 outcome.removed.append(url)
                 outcome.bytesReclaimed += measurement.bytes
-                outcome.filesRemoved += max(1, measurement.fileCount)
+                outcome.filesRemoved += measurement.fileCount
+                if isDoubleCount { continue }
                 // Recorded like any other removal. History is where people go to
                 // find out what happened, and an unlogged deletion is the one
                 // kind this app should never perform.
