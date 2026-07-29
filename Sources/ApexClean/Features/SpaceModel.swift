@@ -102,7 +102,7 @@ final class SpaceModel: ObservableObject {
             }
             let large = LargeFileFinder.find(
                 in: target,
-                minimumBytes: 200 * 1024 * 1024,
+                minimumBytes: 200_000_000,
                 limit: 60,
                 includesProtectedLocations: includesProtected,
                 skipping: skipList,

@@ -99,6 +99,9 @@ public final class SpaceScanner {
     /// the read never returns, the culprit is still nameable.
     private var inFlight = ""
     private var fence: Traversal.VolumeFence?
+    /// What the user asked to map, so an opaque root containing it can be
+    /// ignored rather than blanking the whole scan.
+    private var scanRoot: URL?
     private let lister = GuardedDirectoryLister()
     /// Paths a previous attempt proved unresponsive. Retrying without them is
     /// what turns a dead end into a recoverable one.
@@ -155,14 +158,21 @@ public final class SpaceScanner {
         maxDepth: Int = 6,
         onProgress: ((Progress) -> Void)? = nil
     ) -> SpaceNode? {
+        // Resolved up front. `/Volumes/Macintosh HD` is a symlink to `/` on
+        // every Mac, and the symlink branch below returns a zero-byte leaf — so
+        // choosing it from the folder picker produced an empty map with no
+        // error at all. The same applies to any aliased folder a user picks.
+        let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
+
         lock.lock()
         cancelled = false
         scanned = 0
         beats = 0
-        inFlight = root.path
+        inFlight = resolvedRoot.path
         lock.unlock()
-        fence = Traversal.VolumeFence(root: root)
-        let node = build(url: root, depth: 0, maxDepth: maxDepth, onProgress: onProgress)
+        fence = Traversal.VolumeFence(root: resolvedRoot)
+        scanRoot = resolvedRoot
+        let node = build(url: resolvedRoot, depth: 0, maxDepth: maxDepth, onProgress: onProgress)
         // A cancelled walk has measured only part of the tree. Returning it
         // would draw a treemap that looks authoritative while under-reporting
         // whatever came after the stop, so a stopped scan reports nothing.
@@ -219,7 +229,7 @@ public final class SpaceScanner {
         // this folder — an external drive, say — that choice outranks a
         // heuristic meant to stop us wandering into one by accident.
         let isPackage = values.isPackage == true
-        let isOpaque = depth > 0 && Traversal.isOpaqueContainer(url)
+        let isOpaque = depth > 0 && Traversal.isOpaqueContainer(url, scanRoot: scanRoot)
         if isPackage || isOpaque || depth >= maxDepth {
             let measurement = FileSize.measure(
                 url,
@@ -307,7 +317,7 @@ public enum LargeFileFinder {
 
     public static func find(
         in root: URL,
-        minimumBytes: Int64 = 100 * 1024 * 1024,
+        minimumBytes: Int64 = 100_000_000,
         limit: Int = 200,
         includesProtectedLocations: Bool = false,
         skipping: Set<String> = [],
@@ -332,26 +342,40 @@ public enum LargeFileFinder {
         for case let url as URL in enumerator {
             if isCancelled() { break }
             onVisit()
-            guard let values = try? url.resourceValues(forKeys: keys) else { continue }
-            let isDirectory = values.isDirectory == true
 
-            // Same pre-read rules as the treemap walk: skip anything that can
-            // prompt, fault in from a provider, or live on another volume.
+            // The path-only fences run first, before anything touches the file.
             //
+            // Ordering matters here more than it looks. These three rules exist
+            // to stop the walk *reading* something — a consent-gated path that
+            // blocks in the kernel, a mount on another volume, a caller's
+            // explicit exclusion. Fetching resource values ahead of them, as
+            // this briefly did, meant a directory whose attributes could not be
+            // read was walked into instead of skipped: precisely inverting
+            // fail-closed on the paths most likely to fail that read.
+            if skipping.contains(url.path)
+                || (!includesProtectedLocations && PrivacyAccess.requiresConsent(url.path))
+                || !fence.admits(url)
+            {
+                enumerator.skipDescendants()
+                continue
+            }
+
+            guard let values = try? url.resourceValues(forKeys: keys) else {
+                enumerator.skipDescendants()
+                continue
+            }
+
             // The opaque-container rule applies to *directories only*. It
             // matches on extension, and `dmg`, `sparseimage` and `sparsebundle`
             // are on that list — but a `.dmg` is an ordinary file, so applying
             // the rule to files meant a 12 GB stale installer in Downloads,
             // the single most common piece of large junk on a Mac, could never
             // appear in "largest files".
-            if skipping.contains(url.path)
-                || (!includesProtectedLocations && PrivacyAccess.requiresConsent(url.path))
-                || !fence.admits(url)
-                || (isDirectory && Traversal.isOpaqueContainer(url))
-            {
-                if isDirectory { enumerator.skipDescendants() }
+            if values.isDirectory == true {
+                if Traversal.isOpaqueContainer(url, scanRoot: root) { enumerator.skipDescendants() }
                 continue
             }
+
             guard values.isRegularFile == true else { continue }
             let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             guard bytes >= minimumBytes else { continue }

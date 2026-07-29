@@ -111,10 +111,21 @@ public enum Traversal {
 
     /// True when the directory should be sized from the outside rather than
     /// walked into.
-    public static func isOpaqueContainer(_ url: URL) -> Bool {
+    ///
+    /// - Parameter scanRoot: The root the user asked to map, when there is one.
+    ///   An opaque root that *contains* it is ignored, because the user has
+    ///   explicitly asked to look inside. `/Volumes` is the case that matters:
+    ///   without this, choosing an external drive made every one of its
+    ///   top-level folders opaque, so the whole volume mapped as 0 bytes — an
+    ///   empty treemap, no error, for the most obvious reason anyone opens a
+    ///   disk mapper. An opaque root *below* the scan root still applies, so
+    ///   picking `/` does not start walking `/Volumes` or `/System/Volumes/VM`.
+    public static func isOpaqueContainer(_ url: URL, scanRoot: URL? = nil) -> Bool {
         if opaqueExtensions.contains(url.pathExtension.lowercased()) { return true }
         let path = url.path
+        let rootPath = scanRoot?.standardizedFileURL.resolvingSymlinksInPath().path
         for root in opaqueRoots where path == root || path.hasPrefix(root + "/") {
+            if let rootPath, rootPath == root || rootPath.hasPrefix(root + "/") { continue }
             return true
         }
         for suffix in opaqueSuffixes where path.hasSuffix(suffix) || path.contains(suffix + "/") {
