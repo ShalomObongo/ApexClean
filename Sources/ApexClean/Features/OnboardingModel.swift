@@ -133,9 +133,7 @@ final class OnboardingModel: ObservableObject {
         Task {
             // Off the main thread: the request blocks until the dialog is
             // answered, and the window must stay alive while it is up.
-            let result = await Task.detached(priority: .userInitiated) {
-                Permissions.request(permission)
-            }.value
+            let result = await Self.requestOffMainThread(permission)
 
             Settings.markAsked(permission)
             if permission == .personalFolders, result.isGranted {
@@ -162,9 +160,7 @@ final class OnboardingModel: ObservableObject {
             for permission in Permission.allCases
             where permission.isRequestable && !state(of: permission).isGranted {
                 pending = permission
-                let result = await Task.detached(priority: .userInitiated) {
-                    Permissions.request(permission)
-                }.value
+                let result = await Self.requestOffMainThread(permission)
 
                 Settings.markAsked(permission)
                 if permission == .personalFolders, result.isGranted {
@@ -173,6 +169,22 @@ final class OnboardingModel: ObservableObject {
                 withAnimation(Motion.enter) { states[permission] = result }
             }
             pending = nil
+        }
+    }
+
+    /// Runs a permission request on a thread of its own.
+    ///
+    /// Deliberately **not** `Task.detached`. This call blocks until the user
+    /// answers a system dialog — up to five minutes — and detached tasks run on
+    /// the shared cooperative pool, which is only as wide as the core count.
+    /// Parking several of those would starve every other piece of Swift
+    /// concurrency in the process, including the UI work that has to keep the
+    /// window alive behind the dialog.
+    private static func requestOffMainThread(_ permission: Permission) async -> PermissionState {
+        await withCheckedContinuation { continuation in
+            let thread = Thread { continuation.resume(returning: Permissions.request(permission)) }
+            thread.qualityOfService = .userInitiated
+            thread.start()
         }
     }
 

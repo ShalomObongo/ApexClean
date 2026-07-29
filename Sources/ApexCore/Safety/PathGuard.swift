@@ -95,6 +95,9 @@ public enum PathGuard {
     private static let loweredImmovable: Set<String> = Set(immovable.map { $0.lowercased() })
     private static let loweredSacredSubtrees: [String] = sacredSubtrees.map { $0.lowercased() }
     private static let loweredPermittedRoots: [String] = permittedRoots.map { $0.lowercased() }
+    private static let loweredProtectedFragments: [String] = protectedFragments.map {
+        $0.lowercased()
+    }
 
     private static func isWithin(_ path: String, anyOf roots: [String]) -> Bool {
         roots.contains { path == $0 || path.hasPrefix($0 + "/") }
@@ -165,7 +168,12 @@ public enum PathGuard {
             return .refused(reason: "This is a mounted volume root")
         }
 
-        for fragment in protectedFragments where path.localizedCaseInsensitiveContains(fragment) {
+        // Folded with the same locale-independent mapping as every other
+        // comparison here. `localizedCaseInsensitiveContains` follows the
+        // current locale, and under a Turkish locale dotted and dotless I are
+        // distinct — so `COM.APPLE.FINDER` would not have matched
+        // `com.apple.finder` and the path would not have been protected.
+        for fragment in loweredProtectedFragments where lowered.contains(fragment) {
             return .refused(reason: "Protected system component")
         }
 
@@ -218,13 +226,17 @@ public enum PathGuard {
             return .refused(reason: "Required by macOS")
         }
         let location = path.standardizedFileURL.path
-        if location.hasPrefix("/System/") {
+        // Case-folded for the same reason `evaluate` is: on a case-insensitive
+        // volume `/system/Applications/Mail.app` is the same file as
+        // `/System/...`, and a byte-exact prefix test would wave it through.
+        let lowered = location.lowercased()
+        if lowered.hasPrefix("/system/") {
             return .refused(reason: "Part of the sealed system volume")
         }
-        if location == "/Applications" || location == "/Applications/Utilities" {
+        if lowered == "/applications" || lowered == "/applications/utilities" {
             return .refused(reason: "Not an application bundle")
         }
-        guard location.hasSuffix(".app") else {
+        guard lowered.hasSuffix(".app") else {
             return .refused(reason: "Not an application bundle")
         }
         return .allowed
@@ -244,10 +256,13 @@ public enum PathGuard {
     /// literal `Applications` root and the `.app` suffix, so it cannot be used
     /// to reach `/Applications` itself or any other shallow path.
     private static func isTopLevelApplicationBundle(_ components: [String]) -> Bool {
-        components.count == 2
-            && components[0] == "Applications"
-            && components[1].hasSuffix(".app")
-            && components[1].count > 4
+        guard components.count == 2 else { return false }
+        let root = components[0].lowercased()
+        let leaf = components[1].lowercased()
+        // Case-folded, because everything else here is: a case-exact test would
+        // refuse `/applications/Thing.app` — the same file — and so quietly
+        // reinstate the bug this exception was added to fix.
+        return root == "applications" && leaf.hasSuffix(".app") && leaf.count > 4
     }
 
     private static func isEndpointSecurityPath(_ path: String) -> Bool {

@@ -92,9 +92,13 @@ public enum MemorySampler {
         // Position within the level's band, so the graph still moves while the
         // band itself stays the kernel's call.
         let within = min(1, max(0, vitals.usedFraction))
+        // Bands are contiguous: 0–0.50 normal, 0.50–0.80 warning, 0.80–1.0
+        // critical. An earlier version started the warning band at 0.55, which
+        // left two ranges the value could never take and made the low end of
+        // "warning" indistinguishable from "normal" to the health score.
         switch vitals.pressureLevel {
         case .normal: vitals.pressure = 0.50 * within
-        case .warning: vitals.pressure = 0.55 + 0.20 * within
+        case .warning: vitals.pressure = 0.50 + 0.30 * within
         case .critical: vitals.pressure = 0.80 + 0.20 * within
         }
 

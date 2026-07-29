@@ -79,8 +79,18 @@ enum Settings {
         }
     }
 
+    /// Serialises the read-modify-write below.
+    ///
+    /// `UserDefaults` is thread-safe per access, not across a get/set pair, and
+    /// this is called from whatever thread finished a permission request. A
+    /// lost update would record a permission as never-asked, and the next
+    /// launch would probe it — raising a consent dialog the user never asked
+    /// for, which is the exact thing the setup assistant exists to prevent.
+    private static let askedLock = NSLock()
+
     static func markAsked(_ permission: Permission) {
-        // `askedPermissions` is computed, so this reads, mutates and writes back.
+        askedLock.lock()
+        defer { askedLock.unlock() }
         askedPermissions.insert(permission)
     }
 
