@@ -115,12 +115,6 @@ public final class NetworkSampler {
         "lo", "gif", "stf", "bridge", "utun", "awdl", "llw", "anpi", "xhc", "ap",
     ]
 
-    /// The most traffic a delta may claim before it is read as a counter reset
-    /// rather than a rollover. 20 Gbit/s clears any Ethernet or Thunderbolt
-    /// link a Mac can present; beyond that the interface almost certainly
-    /// restarted, and inventing the difference would spike the graph.
-    private static let plausibleBytesPerSecond: Double = 2.5e9
-
     public init() {}
 
     public func sample() -> NetworkVitals {
@@ -138,17 +132,28 @@ public final class NetworkSampler {
 
         var receivedDelta: Int64 = 0
         var sentDelta: Int64 = 0
-        var busiest: UInt32 = 0
+        var sawCounterReset = false
+        // 64-bit: a busy interface's two 32-bit counters routinely sum past
+        // UInt32.max — en0 on this machine is at 3.2 GB in and 2.1 GB out — and
+        // a wrapped total would rank it below an idle interface.
+        var busiest: UInt64 = 0
 
         for (name, counters) in raw {
             if let previous = lastRaw[name] {
-                let budget = elapsed > 0 ? elapsed * Self.plausibleBytesPerSecond : .infinity
-                receivedDelta += Self.delta(previous.received, counters.received, budget: budget)
-                sentDelta += Self.delta(previous.sent, counters.sent, budget: budget)
+                if let step = Self.delta(previous.received, counters.received) {
+                    receivedDelta += step
+                } else {
+                    sawCounterReset = true
+                }
+                if let step = Self.delta(previous.sent, counters.sent) {
+                    sentDelta += step
+                } else {
+                    sawCounterReset = true
+                }
             }
             // An interface seen for the first time contributes no delta: its
             // counter already holds history this process never observed.
-            let busyness = counters.received &+ counters.sent
+            let busyness = UInt64(counters.received) + UInt64(counters.sent)
             if busyness > busiest {
                 busiest = busyness
                 vitals.interface = name
@@ -159,6 +164,14 @@ public final class NetworkSampler {
         lastSampleTime = now
         totalReceived += receivedDelta
         totalSent += sentDelta
+
+        // A counter went backwards, so this sample's arithmetic is unreliable.
+        // Rather than guess, ask the one source that knows.
+        if sawCounterReset, let truth = Self.seedTotalsIfPossible() {
+            totalReceived = truth.received
+            totalSent = truth.sent
+        }
+
         vitals.totalReceived = totalReceived
         vitals.totalSent = totalSent
 
@@ -168,17 +181,17 @@ public final class NetworkSampler {
         return vitals
     }
 
-    /// Advances a 32-bit odometer, tolerating the roll from `UInt32.max` to 0.
+    /// Advances a 32-bit odometer, or reports that it cannot be advanced.
     ///
-    /// A decrease is normally a rollover, so the wrapped difference is the
-    /// honest answer. It can also mean the interface reset to zero, and the two
-    /// are indistinguishable from the counter alone — so an implausibly large
-    /// result is discarded rather than reported as a burst of traffic that
-    /// never happened.
-    private static func delta(_ previous: UInt32, _ current: UInt32, budget: Double) -> Int64 {
-        let stepped = Int64(current &- previous)
-        if current >= previous { return stepped }
-        return Double(stepped) <= budget ? stepped : 0
+    /// An increase is unambiguous. A decrease is not: the counter either rolled
+    /// past `UInt32.max` or the interface restarted, and nothing in the value
+    /// tells the two apart. Assuming a rollover invents traffic — from a
+    /// counter sitting at 3.0e9, a reset to zero presents as 1.29 GB of
+    /// perfectly plausible transfer, which lands in the totals and spikes the
+    /// graph. So a decrease returns `nil`, contributes nothing, and the caller
+    /// re-reads the true totals instead of guessing at them.
+    private static func delta(_ previous: UInt32, _ current: UInt32) -> Int64? {
+        current >= previous ? Int64(current - previous) : nil
     }
 
     private static func rawCounters() -> [String: Counters] {
@@ -212,22 +225,48 @@ public final class NetworkSampler {
     /// the totals a session figure instead of a since-boot one. That is a
     /// smaller lie than a number short by an unknown multiple of 4 GiB.
     private static func seedTotals() -> (received: Int64, sent: Int64) {
-        guard let output = Shell.run("/usr/sbin/netstat", ["-ibdn"], timeout: 4) else {
-            return (0, 0)
-        }
+        seedTotalsIfPossible() ?? (0, 0)
+    }
 
+    private static func seedTotalsIfPossible() -> (received: Int64, sent: Int64)? {
+        guard let output = Shell.run("/usr/sbin/netstat", ["-ibdn"], timeout: 4) else { return nil }
+        return parseNetstatTotals(output)
+    }
+
+    /// Sums the link-layer rows of `netstat -ibdn`.
+    ///
+    /// Returns `nil` when a row does not have the expected shape, so the caller
+    /// can decline to seed rather than start from a misread number.
+    static func parseNetstatTotals(_ output: String) -> (received: Int64, sent: Int64)? {
         var received: Int64 = 0
         var sent: Int64 = 0
         for line in output.split(separator: "\n").dropFirst() {
             let fields = line.split(separator: " ", omittingEmptySubsequences: true)
             // Only the link-layer row carries the byte counters; the per-address
             // rows repeat them and would multiply every interface's traffic.
-            guard fields.count > 9, fields[2].hasPrefix("<Link") else { continue }
+            guard fields.count >= 11, fields[2].hasPrefix("<Link") else { continue }
 
             let name = String(fields[0])
             guard !ignoredPrefixes.contains(where: { name.hasPrefix($0) }) else { continue }
-            received += Int64(fields[6]) ?? 0
-            sent += Int64(fields[9]) ?? 0
+
+            // Counted from the right, because the Address column is *empty* for
+            // interfaces without a hardware address. Those rows have eleven
+            // fields where the rest have twelve, so fixed indices read Opkts as
+            // Ibytes and Coll as Obytes. `pktap0` on this machine is exactly
+            // that shape and is not filtered out, and a VPN interface would be
+            // too. The trailing columns of `netstat -ibdn` are fixed:
+            // Ipkts Ierrs Ibytes Opkts Oerrs Obytes Coll Drop.
+            let end = fields.count
+            guard let inBytes = Int64(fields[end - 6]), let outBytes = Int64(fields[end - 3])
+            else {
+                // The layout is not what this parser was written for. Seeding
+                // from a misread column would put the totals permanently wrong
+                // by an arbitrary amount, so decline the seed instead and let
+                // the totals count from zero for this session.
+                return nil
+            }
+            received += inBytes
+            sent += outBytes
         }
         return (received, sent)
     }
