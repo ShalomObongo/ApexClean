@@ -144,33 +144,65 @@ public enum CleanupCatalog {
         ]
 
         // Electron apps share one cache layout; enumerate the common ones.
-        let electronApps = [
-            "Slack", "discord", "Claude", "Code", "legcord", "mihomo-party",
-            "Notion", "Figma", "Linear", "Spotify", "Postman", "Obsidian",
+        //
+        // Every one of these carries the bundle identifier it belongs to, so
+        // the caches are held back while the app is running. They are Chromium
+        // underneath, and emptying `Code Cache` or `GPUCache` under a live
+        // Chromium is a documented route to a profile that will not reopen.
+        // These rules previously had no quit requirement at all, which made the
+        // reassurance in the review sheet untrue for the majority of the
+        // catalogue's cache entries.
+        let electronApps: [(name: String, bundleID: String)] = [
+            ("Slack", "com.tinyspeck.slackmacgap"),
+            ("discord", "com.hnc.Discord"),
+            ("Claude", "com.anthropic.claudefordesktop"),
+            ("Code", "com.microsoft.VSCode"),
+            ("legcord", "com.legcord.app"),
+            ("mihomo-party", "party.mihomo.app"),
+            ("Notion", "notion.id"),
+            ("Figma", "com.figma.Desktop"),
+            ("Linear", "com.linear"),
+            ("Spotify", "com.spotify.client"),
+            ("Postman", "com.postmanlabs.mac"),
+            ("Obsidian", "md.obsidian"),
         ]
         for app in electronApps {
+            let quit = [app.bundleID]
             rules += [
-                CleanupRule("\(app) HTTP cache", "~/Library/Application Support/\(app)/Cache/*", .userCaches),
                 CleanupRule(
-                    "\(app) code cache", "~/Library/Application Support/\(app)/Code Cache/*", .userCaches),
+                    "\(app.name) HTTP cache", "~/Library/Application Support/\(app.name)/Cache/*",
+                    .userCaches, requiresQuit: quit),
                 CleanupRule(
-                    "\(app) GPU cache", "~/Library/Application Support/\(app)/GPUCache/*", .userCaches),
+                    "\(app.name) code cache",
+                    "~/Library/Application Support/\(app.name)/Code Cache/*", .userCaches,
+                    requiresQuit: quit),
                 CleanupRule(
-                    "\(app) shader cache", "~/Library/Application Support/\(app)/DawnGraphiteCache/*",
-                    .userCaches),
+                    "\(app.name) GPU cache", "~/Library/Application Support/\(app.name)/GPUCache/*",
+                    .userCaches, requiresQuit: quit),
                 CleanupRule(
-                    "\(app) WebGPU cache", "~/Library/Application Support/\(app)/DawnWebGPUCache/*",
-                    .userCaches),
+                    "\(app.name) shader cache",
+                    "~/Library/Application Support/\(app.name)/DawnGraphiteCache/*",
+                    .userCaches, requiresQuit: quit),
+                CleanupRule(
+                    "\(app.name) WebGPU cache",
+                    "~/Library/Application Support/\(app.name)/DawnWebGPUCache/*",
+                    .userCaches, requiresQuit: quit),
             ]
         }
 
         rules += [
             CleanupRule(
                 "Steam shader cache", "~/Library/Application Support/Steam/steamapps/shadercache/*",
-                .userCaches),
-            CleanupRule("Steam depot cache", "~/Library/Application Support/Steam/depotcache/*", .userCaches),
-            CleanupRule("Steam web cache", "~/Library/Application Support/Steam/htmlcache/*", .userCaches),
-            CleanupRule("Steam app cache", "~/Library/Application Support/Steam/appcache/*", .userCaches),
+                .userCaches, requiresQuit: ["com.valvesoftware.steam"]),
+            CleanupRule(
+                "Steam depot cache", "~/Library/Application Support/Steam/depotcache/*", .userCaches,
+                requiresQuit: ["com.valvesoftware.steam"]),
+            CleanupRule(
+                "Steam web cache", "~/Library/Application Support/Steam/htmlcache/*", .userCaches,
+                requiresQuit: ["com.valvesoftware.steam"]),
+            CleanupRule(
+                "Steam app cache", "~/Library/Application Support/Steam/appcache/*", .userCaches,
+                requiresQuit: ["com.valvesoftware.steam"]),
             CleanupRule("Battle.net cache", "~/Library/Application Support/Battle.net/Cache/*", .userCaches),
             CleanupRule(
                 "Minecraft web cache", "~/Library/Application Support/minecraft/webcache*/*", .userCaches),
@@ -466,15 +498,21 @@ public enum CleanupCatalog {
             CleanupRule("OpenCode cache", "~/.cache/opencode/*", .aiTools),
             CleanupRule("OpenCode logs", "~/.local/share/opencode/log/*", .aiTools),
             CleanupRule("Copilot CLI cache", "~/.copilot/cache/*", .aiTools),
-            CleanupRule("Cursor cache", "~/Library/Application Support/Cursor/Cache/*", .aiTools),
+            CleanupRule(
+                "Cursor cache", "~/Library/Application Support/Cursor/Cache/*", .aiTools,
+                requiresQuit: ["com.todesktop.230313mzl4w4u92"]),
             CleanupRule(
                 "Cursor cached data", "~/Library/Application Support/Cursor/CachedData/*", .aiTools,
-                risk: .rebuildCost),
-            CleanupRule("Cursor GPU cache", "~/Library/Application Support/Cursor/GPUCache/*", .aiTools),
-            CleanupRule("Windsurf cache", "~/Library/Application Support/Windsurf/Cache/*", .aiTools),
+                risk: .rebuildCost, requiresQuit: ["com.todesktop.230313mzl4w4u92"]),
+            CleanupRule(
+                "Cursor GPU cache", "~/Library/Application Support/Cursor/GPUCache/*", .aiTools,
+                requiresQuit: ["com.todesktop.230313mzl4w4u92"]),
+            CleanupRule(
+                "Windsurf cache", "~/Library/Application Support/Windsurf/Cache/*", .aiTools,
+                requiresQuit: ["com.exafunction.windsurf"]),
             CleanupRule(
                 "Windsurf cached data", "~/Library/Application Support/Windsurf/CachedData/*", .aiTools,
-                risk: .rebuildCost),
+                risk: .rebuildCost, requiresQuit: ["com.exafunction.windsurf"]),
             CleanupRule("Zed language server cache", "~/Library/Caches/Zed/*", .aiTools, risk: .rebuildCost),
         ]
     }

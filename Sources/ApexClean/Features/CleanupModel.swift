@@ -17,6 +17,10 @@ final class CleanupModel: ObservableObject {
     }
 
     @Published private(set) var stage: Stage = .idle
+    /// Groups withheld at the moment Clean was pressed because their app had
+    /// been launched since the scan. Surfaced so the withholding is visible
+    /// rather than looking like the selection was silently ignored.
+    @Published private(set) var blockedAtCleanTime = 0
     @Published private(set) var report = CleanupReport()
     @Published private(set) var progress = CleanupScanner.Progress(
         completed: 0, total: 1, currentTitle: "", bytesFound: 0
@@ -253,11 +257,31 @@ final class CleanupModel: ObservableObject {
     // MARK: - Removal
 
     func clean() {
-        let findings = selectedFindings
-        guard !findings.isEmpty else { return }
+        let selection = selectedFindings
+        guard !selection.isEmpty else { return }
+
+        // Re-checked here, not reused from the scan.
+        //
+        // The scan's snapshot is taken before the user has seen anything, and
+        // review is unbounded — they can read the list, launch the very app
+        // whose caches are in it, and come back. Deleting a live Chromium's
+        // Code Cache is a known cause of "your profile could not be opened
+        // correctly" on next launch, and the sheet explicitly promises these
+        // are held back while an app is running.
+        let running = RunningApps.snapshot()
+        let findings = selection.filter { finding in
+            finding.requiresQuit.allSatisfy { !running.contains($0) }
+        }
+        let heldBack = selection.count - findings.count
+        guard !findings.isEmpty else {
+            stage = .reviewing
+            blockedAtCleanTime = heldBack
+            return
+        }
+        blockedAtCleanTime = heldBack
         stage = .cleaning
 
-        let urls = findings.flatMap { $0.items.map(\.url) }
+        let urls = findings.flatMap { finding in finding.items.map { $0.url } }
         var knownSizes: [URL: Int64] = [:]
         for finding in findings {
             for item in finding.items { knownSizes[item.url] = item.bytes }
@@ -284,7 +308,9 @@ final class CleanupModel: ObservableObject {
             // removals sitting in a Trash the user asked to be empty, which is
             // the opposite of what they chose.
             if emptiesTrash {
-                let emptied = remover.emptyTrash()
+                // This pass's own trashed items are erased but not charged for
+                // again — the space they occupy is reclaimed once, not twice.
+                let emptied = remover.emptyTrash(alreadyCounted: outcome.trashedLocations)
                 outcome.removed += emptied.removed
                 outcome.failed += emptied.failed
                 outcome.bytesReclaimed += emptied.bytesReclaimed
