@@ -77,6 +77,15 @@ public struct UninstallPlan {
     public let app: InstalledApp
     public var bundle: URL
     public var leftovers: [Leftover]
+    /// Files that belong to this app but sit outside the blast radius
+    /// ApexClean will operate in — almost always root-owned launch daemons and
+    /// privileged helpers under `/Library`.
+    ///
+    /// These used to be discovered and then discarded before they reached the
+    /// review, so an "uninstall" left a root daemon running and said nothing at
+    /// all. They cannot be removed without administrator rights, but the user
+    /// is entitled to know they are there.
+    public var requiresAdmin: [Leftover] = []
 
     public var leftoverBytes: Int64 { leftovers.reduce(0) { $0 + $1.bytes } }
     public var totalBytes: Int64 { app.bundleBytes + leftoverBytes }
@@ -117,6 +126,7 @@ public enum LeftoverFinder {
             app.bundleBytes = Guarded.run(budget: 20) { FileSize.measure(url).bytes } ?? 0
         }
         var found: [String: Leftover] = [:]
+        var elevated: [String: Leftover] = [:]
 
         let bundleID = app.bundleID
         let bundleIDIsUsable = isReverseDNS(bundleID)
@@ -131,7 +141,18 @@ public enum LeftoverFinder {
         ) {
             let path = url.standardizedFileURL.path
             guard found[path] == nil else { return }
-            guard PathGuard.evaluate(url).isAllowed else { return }
+            guard PathGuard.evaluate(url).isAllowed else {
+                // Reported rather than dropped. Silence here meant a root
+                // launch daemon survived an uninstall with no trace in the UI.
+                elevated[path] = Leftover(
+                    url: url,
+                    bytes: Guarded.run(budget: 3) { FileSize.measure(url).bytes } ?? 0,
+                    kind: kind,
+                    evidence: evidence,
+                    confidence: confidence
+                )
+                return
+            }
 
             // Sandbox containers and the other consent-gated stores are the
             // reason this is not a straight `FileSize.measure`. Without Full
@@ -298,7 +319,8 @@ public enum LeftoverFinder {
         return UninstallPlan(
             app: app,
             bundle: app.url,
-            leftovers: found.values.sorted { $0.bytes > $1.bytes }
+            leftovers: found.values.sorted { $0.bytes > $1.bytes },
+            requiresAdmin: elevated.values.sorted { $0.bytes > $1.bytes }
         )
     }
 

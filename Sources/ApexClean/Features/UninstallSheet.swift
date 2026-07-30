@@ -96,6 +96,20 @@ struct UninstallSheet: View {
                         "Nothing here is deleted outright. If something turns out to matter, restore it from the Trash."
                 )
 
+                if !plan.requiresAdmin.isEmpty {
+                    warning(
+                        symbol: "exclamationmark.shield",
+                        tint: Palette.caution,
+                        title: "\(Count.files(plan.requiresAdmin.count)) need an administrator",
+                        detail: "These belong to \(plan.app.name) but sit in system directories "
+                            + "ApexClean will not modify — usually a launch daemon or a "
+                            + "privileged helper that keeps running after the app is gone. "
+                            + "Remove them in Terminal with sudo:\n"
+                            + plan.requiresAdmin.map { "  sudo rm -rf \"\($0.url.path)\"" }
+                            .joined(separator: "\n")
+                    )
+                }
+
                 if !plan.unmeasurable.isEmpty {
                     warning(
                         symbol: "lock.circle",

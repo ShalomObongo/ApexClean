@@ -120,6 +120,8 @@ final class ApplicationsModel: ObservableObject {
     /// True when the last check did not finish, so an empty list means "we do
     /// not know" rather than "nothing is outdated".
     @Published private(set) var updateCheckFailed = false
+    /// The Homebrew cask deregistered after an uninstall, if there was one.
+    @Published private(set) var forgottenCask: String?
 
     func checkUpdates() {
         guard HomebrewBridge.isAvailable, !isCheckingUpdates else { return }
@@ -157,9 +159,24 @@ final class ApplicationsModel: ObservableObject {
                 // This used to preselect anything that was not Application
                 // Support, which meant a directory matched on a shortened name —
                 // Caches/Microsoft, Logs/Adobe — arrived already ticked.
+                //
+                // A bundle identifier is only unique if exactly one installed
+                // app claims it. `iStat Menus.app` and `iStat Menus 6.app` both
+                // declare `com.bjango.istatmenus`, so uninstalling either one
+                // would have auto-ticked the preferences, containers and group
+                // containers that the surviving copy is still using — signing
+                // the user out and wiping its configuration.
+                let sharedIdentifier =
+                    self.apps.filter { $0.bundleID == app.bundleID }.count > 1
                 self.planSelection = Set(
                     plan.leftovers
-                        .filter { $0.confidence.isSafeToPreselect }
+                        .filter { leftover in
+                            guard leftover.confidence.isSafeToPreselect else { return false }
+                            if sharedIdentifier, leftover.confidence == .bundleIdentifier {
+                                return false
+                            }
+                            return true
+                        }
                         .map(\.id)
                 )
                 self.planSelection.insert(plan.bundle.path)
@@ -173,6 +190,7 @@ final class ApplicationsModel: ObservableObject {
         plan = nil
         planSelection = []
         uninstallOutcome = nil
+        forgottenCask = nil
     }
 
     var planSelectedBytes: Int64 {
@@ -200,13 +218,32 @@ final class ApplicationsModel: ObservableObject {
 
         let historyRef = history
         let name = plan.app.name
+        let bundlePath = plan.bundle.standardizedFileURL.path
+        let removingBundle = planSelection.contains(plan.bundle.path)
 
         queue.async { [weak self] in
             let remover = Remover(history: historyRef)
             let outcome = remover.remove(urls, disposal: .trash, knownSizes: sizes)
+
+            // Homebrew has to be told, or it still believes the cask is
+            // installed: `brew list --cask` keeps reporting it, its staged
+            // payload stays on disk, and `brew outdated` keeps offering it — so
+            // the app reappears in ApexClean's own Updates tab and pressing
+            // Update reinstalls what the user just removed.
+            var forgotten: String?
+            if removingBundle,
+                outcome.removed.contains(where: {
+                    $0.standardizedFileURL.path == bundlePath
+                })
+            {
+                let token = HomebrewBridge.caskTokensByAppPath()[bundlePath]
+                if let token, HomebrewBridge.forgetCask(token) { forgotten = token }
+            }
+
             _ = historyRef.commitSession(title: "Uninstalled \(name)")
             DispatchQueue.main.async {
                 self?.uninstallOutcome = outcome
+                self?.forgottenCask = forgotten
                 self?.isUninstalling = false
                 self?.load()
             }

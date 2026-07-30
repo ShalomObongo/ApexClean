@@ -56,7 +56,13 @@ public enum AppInventory {
         running: RunningAppsSnapshot = RunningAppsSnapshot(),
         includeSystem: Bool = false
     ) -> [InstalledApp] {
-        let caskNames = HomebrewBridge.installedCaskTokens()
+        // Resolved from the Caskroom's own symlinks rather than guessed from
+        // the app's name. The guess was wrong in both directions: it missed
+        // casks whose token differs from the bundle name (`ollama-app` for
+        // Ollama, `opencode-desktop` for OpenCode, `prismlauncher` for "Prism
+        // Launcher"), and would claim a hand-installed app that merely shared a
+        // name with some cask in the index.
+        let caskByPath = HomebrewBridge.caskTokensByAppPath()
         var seen = Set<String>()
         var apps: [InstalledApp] = []
 
@@ -72,7 +78,7 @@ public enum AppInventory {
             for url in contents where url.pathExtension == "app" {
                 guard !seen.contains(url.path) else { continue }
                 seen.insert(url.path)
-                if let app = describe(url, running: running, caskTokens: caskNames) {
+                if let app = describe(url, running: running, caskByPath: caskByPath) {
                     if app.isSystem, !includeSystem { continue }
                     apps.append(app)
                 }
@@ -107,7 +113,7 @@ public enum AppInventory {
     static func describe(
         _ url: URL,
         running: RunningAppsSnapshot,
-        caskTokens: Set<String>
+        caskByPath: [String: String]
     ) -> InstalledApp? {
         guard let bundle = Bundle(url: url) else { return nil }
         let info = bundle.infoDictionary ?? [:]
@@ -142,7 +148,7 @@ public enum AppInventory {
             source = .system
         } else if hasReceipt {
             source = .appStore
-        } else if caskTokens.contains(token) {
+        } else if caskByPath[url.standardizedFileURL.path] != nil {
             source = .homebrew
         } else {
             source = .direct
@@ -171,6 +177,70 @@ public enum HomebrewBridge {
     }
 
     public static var isAvailable: Bool { brewPath != nil }
+
+    /// Maps an installed application path to the cask that owns it.
+    ///
+    /// Resolved from the Caskroom itself rather than guessed from the app's
+    /// name. Every app cask stages `Caskroom/<token>/<version>/Thing.app` as a
+    /// symlink to the real bundle, so following that link answers the question
+    /// exactly — including for casks whose token bears no resemblance to the
+    /// app name, and without falsely claiming a hand-installed app that merely
+    /// shares a name with some cask.
+    public static func caskTokensByAppPath() -> [String: String] {
+        guard
+            let prefix = brewPath.map({ URL(fileURLWithPath: $0).deletingLastPathComponent() })?
+                .deletingLastPathComponent()
+        else { return [:] }
+
+        let caskroom = prefix.appendingPathComponent("Caskroom")
+        let fm = FileManager.default
+        guard let tokens = try? fm.contentsOfDirectory(at: caskroom, includingPropertiesForKeys: nil)
+        else { return [:] }
+
+        var map: [String: String] = [:]
+        for token in tokens {
+            guard let versions = try? fm.contentsOfDirectory(at: token, includingPropertiesForKeys: nil)
+            else { continue }
+            for version in versions {
+                guard
+                    let staged = try? fm.contentsOfDirectory(
+                        at: version, includingPropertiesForKeys: nil)
+                else { continue }
+                for item in staged where item.pathExtension == "app" {
+                    let target = item.resolvingSymlinksInPath().standardizedFileURL.path
+                    map[target] = token.lastPathComponent
+                }
+            }
+        }
+        return map
+    }
+
+    /// Removes the cask record for an app whose bundle has already been
+    /// removed.
+    ///
+    /// Without this, Homebrew still believes the cask is installed: `brew list
+    /// --cask` reports it, its staged payload stays on disk — 707 MB for
+    /// Anaconda on the machine this was found on — and `brew outdated` keeps
+    /// offering it, so ApexClean's own Updates tab will cheerfully reinstall an
+    /// application the user just uninstalled.
+    ///
+    /// `--force` because the bundle is already gone and Homebrew would
+    /// otherwise refuse. Mole's equivalent is `brew_uninstall_cask()` in
+    /// `lib/uninstall/brew.sh`.
+    @discardableResult
+    public static func forgetCask(_ token: String) -> Bool {
+        guard let brew = brewPath else { return false }
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "HOMEBREW_NO_AUTO_UPDATE": "1",
+            "HOMEBREW_NO_ANALYTICS": "1",
+            "NONINTERACTIVE": "1",
+        ]) { _, new in new }
+        let result = Shell.runDetailed(
+            brew, ["uninstall", "--cask", "--force", token], timeout: 120,
+            environment: environment
+        )
+        return !result.timedOut && result.status == 0
+    }
 
     public static func installedCaskTokens() -> Set<String> {
         guard let brew = brewPath,
