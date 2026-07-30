@@ -30,6 +30,12 @@ public struct CleanupFinding: Identifiable, Hashable {
     public var items: [CleanupItem]
     /// Apps that are running and own this data. Present means "quit first".
     public var blockedBy: [String]
+    /// Bundle identifiers that must not be running when this is removed.
+    ///
+    /// Carried on the finding, not just consulted during the scan, so the check
+    /// can be repeated at the moment of removal. `blockedBy` is the scan-time
+    /// answer and goes stale the instant the user launches something.
+    public var requiresQuit: [String] = []
 
     public var bytes: Int64 { items.reduce(0) { $0 + $1.bytes } }
     public var fileCount: Int { items.reduce(0) { $0 + $1.fileCount } }
@@ -176,8 +182,12 @@ public final class CleanupScanner {
             }
         }
 
+        findingsByCategory = Self.deduplicated(findingsByCategory)
+        bytesFound = findingsByCategory.values.flatMap { $0 }.reduce(0) { $0 + $1.bytes }
+
         // Trash is measured directly rather than through a glob: its contents are
         // arbitrary user files, and it is removed with a different disposal.
+        // Deliberately after deduplication, which must not touch it.
         if categories.contains(.trash), !isCancelled, let trash = trashFinding() {
             findingsByCategory[.trash] = [trash]
         }
@@ -256,6 +266,64 @@ public final class CleanupScanner {
 
     // MARK: - Rule evaluation
 
+    /// Drops items already claimed by another finding.
+    ///
+    /// Rules legitimately overlap. `~/Library/Logs/*` matches the
+    /// `DiagnosticReports` directory that `~/Library/Logs/DiagnosticReports/*`
+    /// then matches again from inside, and two patterns appear verbatim under
+    /// two categories — findings carry the category in their id, so nothing
+    /// caught it. The consequences ran in both directions: the headline counted
+    /// the same bytes twice, so a machine with a 3 GB `~/Library/Logs/
+    /// CoreSimulator` was told it could reclaim 6 GB; and at removal the parent
+    /// was unlinked first, after which the child failed its existence check and
+    /// was dropped without being recorded as either removed or failed — so it
+    /// also stayed behind in the post-clean review list.
+    ///
+    /// The broadest path wins, since deleting it removes the narrower one
+    /// anyway. Lexicographic order puts a parent immediately before its
+    /// children, which is what makes one pass sufficient.
+    private static func deduplicated(
+        _ input: [CleanupCategory: [CleanupFinding]]
+    ) -> [CleanupCategory: [CleanupFinding]] {
+        var located: [(category: CleanupCategory, finding: Int, item: Int, path: String)] = []
+        for (category, findings) in input {
+            for (findingIndex, finding) in findings.enumerated() {
+                for (itemIndex, item) in finding.items.enumerated() {
+                    located.append(
+                        (category, findingIndex, itemIndex, item.url.standardizedFileURL.path))
+                }
+            }
+        }
+        located.sort { $0.path < $1.path }
+
+        var survivors: [CleanupCategory: [Int: Set<Int>]] = [:]
+        var lastKept: String?
+        for entry in located {
+            if let kept = lastKept, entry.path == kept || entry.path.hasPrefix(kept + "/") {
+                continue
+            }
+            lastKept = entry.path
+            survivors[entry.category, default: [:]][entry.finding, default: []].insert(entry.item)
+        }
+
+        var output: [CleanupCategory: [CleanupFinding]] = [:]
+        for (category, findings) in input {
+            var kept: [CleanupFinding] = []
+            for (findingIndex, finding) in findings.enumerated() {
+                guard let indices = survivors[category]?[findingIndex], !indices.isEmpty else {
+                    continue
+                }
+                var trimmed = finding
+                trimmed.items = finding.items.enumerated()
+                    .filter { indices.contains($0.offset) }
+                    .map(\.element)
+                kept.append(trimmed)
+            }
+            if !kept.isEmpty { output[category] = kept }
+        }
+        return output
+    }
+
     private func evaluate(_ rule: CleanupRule, running: RunningAppsSnapshot) -> CleanupFinding? {
         let matches = Glob.expand(rule.pattern)
         guard !matches.isEmpty else { return nil }
@@ -303,7 +371,8 @@ public final class CleanupScanner {
             category: rule.category,
             risk: rule.risk,
             items: items.sorted { $0.bytes > $1.bytes },
-            blockedBy: blockers
+            blockedBy: blockers,
+            requiresQuit: rule.requiresQuit
         )
     }
 
