@@ -73,6 +73,14 @@ struct ApexButton: View {
             .opacity(isEnabled ? 1 : 0.42)
         }
         .buttonStyle(.plain)
+        // `.plain` drops the label the system would otherwise infer, so every
+        // button in the app reported no accessibility name at all — verified by
+        // asking System Events, which returned `missing value` for all of them.
+        // That makes the entire interface unusable with VoiceOver.
+        .accessibilityLabel(Text(title))
+        .accessibilityAddTraits(.isButton)
+        .accessibilityValue(isLoading ? Text("Working") : Text(""))
+        .accessibilityHint(isLoading ? Text("This action is still running") : Text(""))
         .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: hovering)
         .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: pressed)
         .onHover { hovering = $0 && isEnabled }
