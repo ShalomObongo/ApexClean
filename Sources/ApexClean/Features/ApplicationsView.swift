@@ -73,9 +73,13 @@ struct ApplicationsView: View {
         .padding(.horizontal, 10)
         .frame(height: 32)
         .background(
-            Capsule().fill(Palette.surface(scheme).opacity(0.7))
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Palette.surface(scheme))
         )
-        .overlay(Capsule().strokeBorder(Palette.hairline(scheme), lineWidth: 1))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.contour(scheme), lineWidth: 1)
+        )
     }
 
     private var tabBar: some View {
@@ -92,14 +96,20 @@ struct ApplicationsView: View {
                             Text("\(model.outdated.count)")
                                 .font(.system(size: 10, weight: .bold))
                                 .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(Capsule().fill(Palette.jade.opacity(0.2)))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .fill(Palette.jade.opacity(0.2))
+                                )
                                 .foregroundStyle(Palette.jade)
                         }
                         if tab == .startup, !model.orphanedStartupItems.isEmpty {
                             Text("\(model.orphanedStartupItems.count)")
                                 .font(.system(size: 10, weight: .bold))
                                 .padding(.horizontal, 5).padding(.vertical, 1)
-                                .background(Capsule().fill(Palette.caution.opacity(0.2)))
+                                .background(
+                                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                        .fill(Palette.caution.opacity(0.2))
+                                )
                                 .foregroundStyle(Palette.caution)
                         }
                     }

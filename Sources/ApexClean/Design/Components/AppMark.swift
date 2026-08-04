@@ -1,29 +1,45 @@
+import AppKit
 import SwiftUI
 
-/// The ApexClean glyph — a rounded jade→cyan tile carrying a single spark.
-///
-/// One definition, used by the sidebar brand, the About panel, and anywhere
-/// else the app needs to sign its name. Scales entirely off `size` so it stays
-/// proportionally correct from 20pt to 96pt.
+extension Bundle {
+    static let apexResources: Bundle = {
+        if let url = Bundle.main.url(
+            forResource: "ApexClean_ApexClean",
+            withExtension: "bundle"
+        ), let bundle = Bundle(url: url) {
+            return bundle
+        }
+        return .module
+    }()
+}
+
+enum CoastalAssets {
+    static let appIcon = load("CoastalAtlasAppIcon")
+    static let welcome = load("CoastalAtlasWelcome")
+
+    private static func load(_ name: String) -> NSImage {
+        guard
+            let url = Bundle.apexResources.url(forResource: name, withExtension: "png"),
+            let image = NSImage(contentsOf: url)
+        else {
+            fatalError("Missing bundled image asset: \(name).png")
+        }
+        return image
+    }
+}
+
+/// Generated Coastal Atlas identity mark.
 struct AppMark: View {
     var size: CGFloat = 28
 
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
-                .fill(Palette.accentGradient)
-
-            RoundedRectangle(cornerRadius: size * 0.32, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.28), lineWidth: size * 0.02)
-                .blendMode(.plusLighter)
-
-            Image(systemName: "sparkle")
-                .font(.system(size: size * 0.46, weight: .black))
-                .foregroundStyle(Color(hex: 0x04120C))
-        }
-        .frame(width: size, height: size)
-        .shadow(color: Palette.jade.opacity(0.45), radius: size * 0.32, y: size * 0.07)
-        .accessibilityHidden(true)
+        Image(nsImage: CoastalAssets.appIcon)
+            .resizable()
+            .interpolation(.high)
+            .antialiased(true)
+            .scaledToFit()
+            .frame(width: size, height: size)
+            .accessibilityHidden(true)
     }
 }
 

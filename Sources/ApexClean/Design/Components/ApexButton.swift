@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// Primary action. Gradient fill, specular top edge, and a press response that
-/// is felt rather than seen.
+/// Flat outlined action control.
 struct ApexButton: View {
-    enum Kind { case primary, secondary, quiet, destructive }
+    enum Kind {
+        case primary, secondary, quiet, destructive
+    }
 
     let title: String
     var symbol: String? = nil
@@ -22,13 +23,15 @@ struct ApexButton: View {
             case .large: 44
             }
         }
+
         var font: Font {
             switch self {
-            case .compact: .system(size: 11.5, weight: .semibold)
-            case .regular: .system(size: 13, weight: .semibold)
-            case .large: .system(size: 15, weight: .semibold)
+            case .compact: Typo.display(11.5, weight: .semibold)
+            case .regular: Typo.display(13, weight: .semibold)
+            case .large: Typo.display(15, weight: .semibold)
             }
         }
+
         var horizontalPadding: CGFloat {
             switch self {
             case .compact: 11
@@ -53,7 +56,8 @@ struct ApexButton: View {
                         .scaleEffect(0.7)
                         .frame(width: 12, height: 12)
                 } else if let symbol {
-                    Image(systemName: symbol).font(.system(size: size == .large ? 13 : 11, weight: .bold))
+                    Image(systemName: symbol)
+                        .font(.system(size: size == .large ? 13 : 11, weight: .bold))
                 }
                 Text(title).font(size.font)
             }
@@ -62,21 +66,11 @@ struct ApexButton: View {
             .frame(height: size.height)
             .background(background)
             .overlay(stroke)
-            .clipShape(Capsule(style: .continuous))
-            .shadow(
-                color: shadowColor,
-                radius: hovering ? 14 : 8,
-                x: 0,
-                y: hovering ? 5 : 3
-            )
+            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             .scaleEffect(pressed && !reduceMotion ? 0.972 : 1)
             .opacity(isEnabled ? 1 : 0.42)
         }
         .buttonStyle(.plain)
-        // `.plain` drops the label the system would otherwise infer, so every
-        // button in the app reported no accessibility name at all — verified by
-        // asking System Events, which returned `missing value` for all of them.
-        // That makes the entire interface unusable with VoiceOver.
         .accessibilityLabel(Text(title))
         .accessibilityAddTraits(.isButton)
         .accessibilityValue(isLoading ? Text("Working") : Text(""))
@@ -93,10 +87,9 @@ struct ApexButton: View {
 
     private var foreground: Color {
         switch kind {
-        case .primary: Color(hex: 0x04120C)
+        case .primary, .destructive: Color.white
         case .secondary: Palette.ink(scheme)
         case .quiet: Palette.inkSecondary(scheme)
-        case .destructive: Color.white
         }
     }
 
@@ -104,61 +97,35 @@ struct ApexButton: View {
     private var background: some View {
         switch kind {
         case .primary:
-            LinearGradient(
-                colors: hovering
-                    ? [
-                        Palette.jade.mixed(with: .white, amount: 0.12),
-                        Palette.cyan.mixed(with: .white, amount: 0.12),
-                    ]
-                    : [Palette.jade, Palette.cyan],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            hovering ? Palette.action.mixed(with: .black, amount: 0.08) : Palette.action
         case .secondary:
-            Palette.surfaceRaised(scheme).opacity(hovering ? 1 : 0.8)
+            hovering ? Palette.seaSage.opacity(0.32) : Palette.seaSage.opacity(0.18)
         case .quiet:
-            Color.primary.opacity(hovering ? 0.07 : 0)
+            Palette.dustyBlue.opacity(hovering ? 0.14 : 0)
         case .destructive:
-            LinearGradient(
-                colors: hovering
-                    ? [Palette.alert.mixed(with: .white, amount: 0.14), Palette.alert]
-                    : [Palette.alert, Palette.alert.mixed(with: .black, amount: 0.14)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+            hovering ? Palette.alertFill.mixed(with: .black, amount: 0.08) : Palette.alertFill
         }
     }
 
     @ViewBuilder
     private var stroke: some View {
         switch kind {
-        case .primary, .destructive:
-            Capsule(style: .continuous)
-                .strokeBorder(
-                    LinearGradient(
-                        colors: [.white.opacity(0.35), .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    ),
-                    lineWidth: 1
-                )
+        case .primary:
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.action.mixed(with: .black, amount: 0.22), lineWidth: 1)
         case .secondary:
-            Capsule(style: .continuous).strokeBorder(Palette.hairline(scheme), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.contour(scheme), lineWidth: 1)
         case .quiet:
-            EmptyView()
-        }
-    }
-
-    private var shadowColor: Color {
-        switch kind {
-        case .primary: Palette.jade.opacity(hovering ? 0.34 : 0.20)
-        case .destructive: Palette.alert.opacity(hovering ? 0.32 : 0.18)
-        default: .black.opacity(scheme == .dark ? 0.28 : 0.06)
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(hovering ? Palette.contour(scheme) : .clear, lineWidth: 1)
+        case .destructive:
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .strokeBorder(Palette.alertFill.mixed(with: .black, amount: 0.22), lineWidth: 1)
         }
     }
 }
 
-/// Icon-only button for toolbars and row affordances.
 struct IconButton: View {
     let symbol: String
     var help: String = ""
@@ -176,7 +143,11 @@ struct IconButton: View {
                 .frame(width: 28, height: 28)
                 .background(
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(Color.primary.opacity(hovering ? 0.08 : 0))
+                        .fill(Palette.dustyBlue.opacity(hovering ? 0.14 : 0))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .strokeBorder(hovering ? Palette.contour(scheme) : .clear, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)
@@ -186,7 +157,6 @@ struct IconButton: View {
     }
 }
 
-/// Checkbox with a spring check-in. Used everywhere destructive selection happens.
 struct ApexCheckbox: View {
     @Binding var isOn: Bool
     var tint: Color = Palette.jade
@@ -201,35 +171,28 @@ struct ApexCheckbox: View {
                 isOn.toggle()
             }
         } label: {
-            RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(isOn || isMixed ? tint : Color.clear)
+            RoundedRectangle(cornerRadius: 4, style: .continuous)
+                .fill(isOn || isMixed ? selectedFill : Color.clear)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
                         .strokeBorder(
-                            isOn || isMixed ? tint : Palette.inkTertiary(scheme).opacity(0.55),
-                            lineWidth: 1.3
+                            isOn || isMixed ? Palette.contour(scheme) : Palette.inkTertiary(scheme),
+                            lineWidth: 1.2
                         )
                 )
-                .overlay(
-                    Group {
-                        if isMixed {
-                            RoundedRectangle(cornerRadius: 1, style: .continuous)
-                                .fill(Color(hex: 0x04120C))
-                                .frame(width: 7, height: 2)
-                        } else if isOn {
-                            Image(systemName: "checkmark")
-                                .font(.system(size: 9, weight: .heavy))
-                                .foregroundStyle(Color(hex: 0x04120C))
-                        }
+                .overlay {
+                    if isMixed {
+                        RoundedRectangle(cornerRadius: 1, style: .continuous)
+                            .fill(selectedMark)
+                            .frame(width: 7, height: 2)
+                    } else if isOn {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .heavy))
+                            .foregroundStyle(selectedMark)
                     }
-                )
+                }
                 .frame(width: 16, height: 16)
                 .scaleEffect(isOn && !reduceMotion ? 1 : 0.98)
-                // A 16pt box is the right size to look at and the wrong size to
-                // hit — well under the ~28pt macOS expects, which made selecting
-                // tasks and findings genuinely fiddly. Pad out to a comfortable
-                // target, claim it for hit testing, then pad back in so the
-                // surrounding layout is unchanged.
                 .padding(6)
                 .contentShape(Rectangle())
                 .padding(-6)
@@ -237,5 +200,13 @@ struct ApexCheckbox: View {
         .buttonStyle(.plain)
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(isMixed ? "Mixed" : (isOn ? "Selected" : "Not selected"))
+    }
+
+    private var selectedFill: Color {
+        scheme == .dark ? Palette.bone : Palette.charcoal
+    }
+
+    private var selectedMark: Color {
+        scheme == .dark ? Palette.charcoal : Palette.bone
     }
 }

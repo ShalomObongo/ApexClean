@@ -7,14 +7,14 @@ struct RootView: View {
 
     var body: some View {
         ZStack {
-            AuroraBackdrop(
+            AtlasBackdrop(
                 intensity: state.destination == .smartCare ? 1.0 : 0.55,
                 energy: state.cleanup.stage == .scanning ? 1 : 0
             )
 
             HStack(spacing: 0) {
                 Sidebar()
-                Divider().overlay(Palette.hairline(scheme))
+                Divider().overlay(Palette.contour(scheme))
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -97,29 +97,18 @@ struct Sidebar: View {
                 .padding(.bottom, 14)
         }
         .frame(width: Metrics.sidebarWidth)
-        .background(
-            // Opaque, for the same compositing reason as ApexCard: a material
-            // here would re-blur the drifting backdrop on every frame.
-            LinearGradient(
-                colors: [
-                    Palette.canvasDeep(scheme).opacity(scheme == .dark ? 0.97 : 0.92),
-                    Palette.canvasDeep(scheme).opacity(scheme == .dark ? 0.92 : 0.86),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
+        .background(Palette.sidebar(scheme))
     }
 
     private var brand: some View {
         HStack(spacing: 10) {
-            AppMark(size: 28)
-            VStack(alignment: .leading, spacing: 0) {
+            AppMark(size: 32)
+            VStack(alignment: .leading, spacing: 1) {
                 Text("ApexClean")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(Typo.display(15, weight: .bold))
                     .foregroundStyle(Palette.ink(scheme))
-                Text("Mac care, transparently")
-                    .font(.system(size: 10, weight: .medium))
+                Text("Storage, clearly mapped")
+                    .font(Typo.display(10, weight: .medium))
                     .foregroundStyle(Palette.inkTertiary(scheme))
             }
         }
@@ -152,23 +141,20 @@ private struct SidebarRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 10) {
-                // The selection indicator is a rail rather than a full-width
-                // fill: quieter, and it keeps the row's left edge aligned.
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(isSelected ? AnyShapeStyle(Palette.accentGradient) : AnyShapeStyle(Color.clear))
-                    .frame(width: 3, height: isSelected ? 20 : 0)
+                Text(indexLabel)
+                    .font(Typo.numeric(9, weight: .semibold))
+                    .foregroundStyle(
+                        isSelected ? Palette.ink(scheme) : Palette.inkSecondary(scheme)
+                    )
+                    .frame(width: 18, alignment: .leading)
 
                 Image(systemName: destination.symbol)
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(
-                        isSelected
-                            ? AnyShapeStyle(destination.tint)
-                            : AnyShapeStyle(Palette.inkSecondary(scheme))
-                    )
+                    .foregroundStyle(isSelected ? Palette.ink(scheme) : Palette.inkSecondary(scheme))
                     .frame(width: 20)
 
                 Text(destination.title)
-                    .font(.system(size: 13, weight: isSelected ? .semibold : .regular))
+                    .font(Typo.display(13, weight: isSelected ? .semibold : .regular))
                     .foregroundStyle(isSelected ? Palette.ink(scheme) : Palette.inkSecondary(scheme))
 
                 Spacer(minLength: 4)
@@ -176,24 +162,35 @@ private struct SidebarRow: View {
                 if let badge {
                     Text(badge)
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(destination.tint)
+                        .foregroundStyle(Palette.ink(scheme))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
                         .background(
-                            Capsule().fill(destination.tint.opacity(0.15))
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .fill(destination.tint.opacity(0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                                .strokeBorder(Palette.contour(scheme), lineWidth: 0.8)
                         )
                 }
             }
-            .padding(.trailing, 10)
-            .padding(.vertical, 7)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
                     .fill(
                         isSelected
-                            ? Color.primary.opacity(scheme == .dark ? 0.07 : 0.05)
-                            : Color.primary.opacity(hovering ? 0.04 : 0)
+                            ? Palette.seaSage.opacity(scheme == .dark ? 0.24 : 0.34)
+                            : Palette.dustyBlue.opacity(hovering ? 0.10 : 0)
                     )
-                    .padding(.leading, 8)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 9, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? Palette.contour(scheme) : Color.clear,
+                        lineWidth: 1
+                    )
             )
             .contentShape(Rectangle())
         }
@@ -203,6 +200,11 @@ private struct SidebarRow: View {
         .onHover { hovering = $0 }
         .help(destination.subtitle)
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+    }
+
+    private var indexLabel: String {
+        guard let index = Destination.allCases.firstIndex(of: destination) else { return "—" }
+        return String(format: "%02d", index + 1)
     }
 }
 
@@ -217,14 +219,20 @@ struct PageHeader<Trailing: View>: View {
 
     var body: some View {
         HStack(alignment: .center) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(eyebrow).eyebrowStyle(scheme)
-                Text(title)
-                    .font(Typo.title)
-                    .foregroundStyle(Palette.ink(scheme))
-                Text(subtitle)
-                    .font(Typo.body)
-                    .foregroundStyle(Palette.inkSecondary(scheme))
+            HStack(alignment: .top, spacing: 12) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Palette.brick)
+                    .frame(width: 4, height: 48)
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(eyebrow).eyebrowStyle(scheme)
+                    Text(title)
+                        .font(Typo.title)
+                        .foregroundStyle(Palette.ink(scheme))
+                    Text(subtitle)
+                        .font(Typo.body)
+                        .foregroundStyle(Palette.inkSecondary(scheme))
+                }
             }
             Spacer(minLength: 16)
             trailing()

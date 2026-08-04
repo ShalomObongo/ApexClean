@@ -29,7 +29,7 @@ struct MenuBarHUD: View {
             footer
         }
         .frame(width: 320)
-        .background(Palette.canvas(scheme).opacity(0.4))
+        .background(Palette.canvas(scheme))
         .onAppear { vitals.addSubscriber() }
         .onDisappear { vitals.removeSubscriber() }
     }
@@ -247,13 +247,20 @@ struct MenuBarHUD: View {
                 openMainWindow(.smartCare)
             } label: {
                 HStack(spacing: 5) {
-                    Image(systemName: "sparkles").font(.system(size: 10, weight: .bold))
+                    Image(systemName: "arrow.up.forward.app").font(.system(size: 10, weight: .bold))
                     Text("Open ApexClean").font(.system(size: 11.5, weight: .semibold))
                 }
-                .foregroundStyle(Color(hex: 0x04120C))
+                .foregroundStyle(Color.white)
                 .padding(.horizontal, 11)
                 .frame(height: 26)
-                .background(Capsule().fill(Palette.accentGradient))
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(Palette.action)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Palette.contour(scheme), lineWidth: 1)
+                )
             }
             .buttonStyle(.plain)
 

@@ -91,10 +91,11 @@ struct CleanupView: View {
                     .padding(.horizontal, 9)
                     .padding(.vertical, 5)
                     .background(
-                        Capsule().fill(enabled ? tint.opacity(0.13) : Color.clear)
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .fill(enabled ? tint.opacity(0.13) : Color.clear)
                     )
                     .overlay(
-                        Capsule().strokeBorder(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(
                             enabled ? tint.opacity(0.3) : Palette.hairline(scheme),
                             lineWidth: 1
                         )
@@ -110,9 +111,9 @@ struct CleanupView: View {
     private var emptyState: some View {
         VStack(spacing: 16) {
             Spacer()
-            Image(systemName: "wand.and.rays")
+            Image(systemName: "checklist")
                 .font(.system(size: 40, weight: .light))
-                .foregroundStyle(Palette.accentGradient)
+                .foregroundStyle(Palette.info)
             Text("Nothing scanned yet")
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
@@ -122,7 +123,7 @@ struct CleanupView: View {
             .font(Typo.body)
             .foregroundStyle(Palette.inkTertiary(scheme))
             .multilineTextAlignment(.center)
-            ApexButton(title: "Scan now", symbol: "sparkles", size: .large) { model.scan() }
+            ApexButton(title: "Scan now", symbol: "scope", size: .large) { model.scan() }
                 .padding(.top, 4)
             Spacer()
         }
@@ -157,9 +158,9 @@ struct CleanupView: View {
         }
         .padding(.horizontal, 24)
         .padding(.vertical, 14)
-        .background(.regularMaterial)
+        .background(Palette.surface(scheme))
         .overlay(alignment: .top) {
-            Rectangle().fill(Palette.hairline(scheme)).frame(height: 1)
+            Rectangle().fill(Palette.contour(scheme)).frame(height: 1)
         }
     }
 }

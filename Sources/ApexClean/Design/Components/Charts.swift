@@ -1,18 +1,8 @@
 import SwiftUI
 
-/// Filled line chart for a rolling series. Drawn with a Catmull-Rom style smooth
-/// so a 2-second sampling cadence does not look like a sawtooth.
-///
-/// Deliberately a single `Canvas` rather than a `GeometryReader` wrapping
-/// stacked `Shape` views. Sampling publishes four times a minute-and-a-half of
-/// history, and with a view-tree implementation every one of those updates
-/// re-ran layout for the whole page — profiling put SwiftUI's stack layout at
-/// the top of the main thread. A Canvas is one leaf: it draws, it never lays
-/// out, and the live dashboard stops costing what it measures.
 struct Sparkline: View {
     let values: [Double]
     var tint: Color = Palette.jade
-    /// Fixed ceiling. When nil, the chart auto-scales to its own maximum.
     var ceiling: Double? = nil
     var lineWidth: CGFloat = 1.6
     var showsFill: Bool = true
@@ -28,41 +18,25 @@ struct Sparkline: View {
             if showsFill {
                 context.fill(
                     fillPath(line, points: points, in: size),
-                    with: .linearGradient(
-                        Gradient(colors: [tint.opacity(0.34), tint.opacity(0.02)]),
-                        startPoint: .zero,
-                        endPoint: CGPoint(x: 0, y: size.height)
-                    )
+                    with: .color(tint.opacity(0.12))
                 )
             }
 
             context.stroke(
                 line,
-                with: .linearGradient(
-                    Gradient(colors: [tint.opacity(0.55), tint]),
-                    startPoint: .zero,
-                    endPoint: CGPoint(x: size.width, y: 0)
-                ),
+                with: .color(tint),
                 style: StrokeStyle(lineWidth: lineWidth, lineCap: .round, lineJoin: .round)
             )
 
             if let last = points.last {
                 let radius = lineWidth * 1.3
-                // A drawn halo instead of a shadow filter: the same read at a
-                // fraction of the cost, and it never triggers offscreen passes.
                 context.fill(
                     Path(
                         ellipseIn: CGRect(
-                            x: last.x - radius * 2.4, y: last.y - radius * 2.4,
-                            width: radius * 4.8, height: radius * 4.8
-                        )),
-                    with: .color(tint.opacity(0.22))
-                )
-                context.fill(
-                    Path(
-                        ellipseIn: CGRect(
-                            x: last.x - radius, y: last.y - radius,
-                            width: radius * 2, height: radius * 2
+                            x: last.x - radius,
+                            y: last.y - radius,
+                            width: radius * 2,
+                            height: radius * 2
                         )),
                     with: .color(tint)
                 )
@@ -88,13 +62,14 @@ struct Sparkline: View {
     private func linePath(_ points: [CGPoint]) -> Path {
         var path = Path()
         path.move(to: points[0])
-        // Midpoint quadratic smoothing: cheap, stable, and never overshoots the
-        // data the way a naive cubic spline can.
         for index in 1..<points.count {
             let previous = points[index - 1]
             let current = points[index]
-            let mid = CGPoint(x: (previous.x + current.x) / 2, y: (previous.y + current.y) / 2)
-            path.addQuadCurve(to: mid, control: previous)
+            let middle = CGPoint(
+                x: (previous.x + current.x) / 2,
+                y: (previous.y + current.y) / 2
+            )
+            path.addQuadCurve(to: middle, control: previous)
         }
         path.addLine(to: points[points.count - 1])
         return path
@@ -109,7 +84,6 @@ struct Sparkline: View {
     }
 }
 
-/// Circular gauge for a bounded 0…1 value.
 struct RingGauge: View {
     let value: Double
     var tint: Color = Palette.jade
@@ -121,27 +95,22 @@ struct RingGauge: View {
     var body: some View {
         ZStack {
             Circle()
-                .strokeBorder(Palette.hairline(scheme).opacity(trackOpacity), lineWidth: thickness)
+                .strokeBorder(
+                    Palette.contour(scheme).opacity(0.16 * trackOpacity),
+                    lineWidth: thickness
+                )
             Circle()
                 .trim(from: 0, to: max(0.001, min(1, value)))
                 .stroke(
-                    AngularGradient(
-                        colors: [tint.opacity(0.65), tint],
-                        center: .center,
-                        startAngle: .degrees(-90),
-                        endAngle: .degrees(270)
-                    ),
-                    style: StrokeStyle(lineWidth: thickness, lineCap: .round)
+                    tint,
+                    style: StrokeStyle(lineWidth: thickness, lineCap: .butt)
                 )
                 .rotationEffect(.degrees(-90))
-                .shadow(color: tint.opacity(0.4), radius: 5)
         }
         .animation(Motion.stream, value: value)
     }
 }
 
-/// Horizontal capacity bar with optional pending-removal segment, so the effect
-/// of a selection is visible before it is committed.
 struct CapacityBar: View {
     let used: Int64
     let total: Int64
@@ -159,31 +128,21 @@ struct CapacityBar: View {
             let releaseFraction = Double(min(pendingRelease, used)) / totalValue
 
             ZStack(alignment: .leading) {
-                Capsule(style: .continuous)
-                    .fill(Palette.hairline(scheme))
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Palette.contour(scheme).opacity(0.14))
 
                 HStack(spacing: 0) {
-                    Capsule(style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [tint.opacity(0.75), tint],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
+                    Rectangle()
+                        .fill(tint)
                         .frame(width: max(0, width * keptFraction))
 
                     if releaseFraction > 0 {
-                        Capsule(style: .continuous)
-                            .fill(Palette.caution.opacity(0.85))
+                        Rectangle()
+                            .fill(Palette.caution)
                             .frame(width: max(0, width * releaseFraction))
-                            .overlay(
-                                Capsule(style: .continuous)
-                                    .strokeBorder(Palette.caution, lineWidth: 0.5)
-                            )
                     }
                 }
-                .clipShape(Capsule(style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 2, style: .continuous))
             }
         }
         .frame(height: height)
@@ -192,7 +151,6 @@ struct CapacityBar: View {
     }
 }
 
-/// Multi-segment proportional bar used to break a total into named parts.
 struct SegmentedBar: View {
     struct Segment: Identifiable {
         let id: String
@@ -205,8 +163,6 @@ struct SegmentedBar: View {
     var height: CGFloat = 12
     var highlighted: String?
 
-    @Environment(\.colorScheme) private var scheme
-
     var body: some View {
         GeometryReader { geometry in
             let width = geometry.size.width
@@ -216,16 +172,8 @@ struct SegmentedBar: View {
                 ForEach(segments) { segment in
                     let fraction = Double(segment.bytes) / totalValue
                     let dimmed = highlighted != nil && highlighted != segment.id
-                    RoundedRectangle(cornerRadius: 3, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [
-                                    segment.color, segment.color.mixed(with: Palette.cyan, amount: 0.28),
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
+                    RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                        .fill(segment.color)
                         .frame(width: max(2, width * fraction))
                         .opacity(dimmed ? 0.25 : 1)
                 }

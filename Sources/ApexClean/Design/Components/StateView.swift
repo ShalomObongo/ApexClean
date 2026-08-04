@@ -40,7 +40,7 @@ struct StateView: View {
                     .font(.system(size: 38, weight: .light))
                     .foregroundStyle(
                         isIdle
-                            ? AnyShapeStyle(Palette.accentGradient)
+                            ? AnyShapeStyle(Palette.info)
                             : AnyShapeStyle(Palette.inkTertiary(scheme)))
                 Text(title)
                     .font(Typo.metric(18))

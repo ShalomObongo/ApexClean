@@ -1,34 +1,26 @@
 import SwiftUI
 
-/// Typography scale.
-///
-/// Two jobs: an editorial display voice for headings and hero numbers, and a
-/// strictly tabular voice for anything that changes while you watch it — a
-/// jittering byte count reads as instability.
+/// Humanist typography scale for the Coastal Atlas interface.
 enum Typo {
     static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .default)
+        .custom("Avenir Next", fixedSize: size).weight(weight)
     }
 
-    /// Hero metrics. Rounded gives large numerals warmth; monospaced digits stop
-    /// the layout from twitching as values update.
     static func metric(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .system(size: size, weight: weight, design: .rounded).monospacedDigit()
+        .custom("Avenir Next", fixedSize: size).weight(weight).monospacedDigit()
     }
 
     static func numeric(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .system(size: size, weight: weight).monospacedDigit()
+        .custom("Avenir Next", fixedSize: size).weight(weight).monospacedDigit()
     }
 
-    static let title = Font.system(size: 26, weight: .bold)
-    static let sectionTitle = Font.system(size: 17, weight: .semibold)
-    static let cardTitle = Font.system(size: 14, weight: .semibold)
-    static let body = Font.system(size: 13, weight: .regular)
-    static let secondary = Font.system(size: 12, weight: .regular)
-    static let caption = Font.system(size: 11, weight: .medium)
-
-    /// Small, wide-tracked, uppercase label used for section eyebrows.
-    static let eyebrow = Font.system(size: 10, weight: .bold)
+    static let title = display(25, weight: .bold)
+    static let sectionTitle = display(17, weight: .semibold)
+    static let cardTitle = display(14, weight: .semibold)
+    static let body = display(13)
+    static let secondary = display(12)
+    static let caption = display(11, weight: .medium)
+    static let eyebrow = display(10, weight: .bold)
 }
 
 extension View {
@@ -67,10 +59,10 @@ enum Motion {
 
 /// Shared geometry so corner radii and insets stay in a family.
 enum Metrics {
-    static let cardRadius: CGFloat = 16
-    static let tileRadius: CGFloat = 12
-    static let chipRadius: CGFloat = 8
+    static let cardRadius: CGFloat = 13
+    static let tileRadius: CGFloat = 9
+    static let chipRadius: CGFloat = 6
     static let cardPadding: CGFloat = 18
     static let gutter: CGFloat = 16
-    static let sidebarWidth: CGFloat = 232
+    static let sidebarWidth: CGFloat = 224
 }

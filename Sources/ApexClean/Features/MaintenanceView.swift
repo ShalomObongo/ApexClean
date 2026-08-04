@@ -52,7 +52,7 @@ struct MaintenanceView: View {
                     Circle().fill(Palette.jade.opacity(0.13)).frame(width: 40, height: 40)
                     Image(systemName: model.isRunning ? "gearshape.2" : "checkmark")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Palette.accentGradient)
+                        .foregroundStyle(Palette.info)
                         .symbolEffect(.pulse, isActive: model.isRunning)
                 }
                 VStack(alignment: .leading, spacing: 2) {

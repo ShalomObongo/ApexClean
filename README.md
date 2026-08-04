@@ -449,12 +449,11 @@ of one core:
 
 <br>
 
-**Ambient motion runs on Core Animation, not SwiftUI.**
-A continuously animating SwiftUI view re-runs layout and render every display cycle,
-forever. The aurora backdrop and the orbiting scan arc are `NSViewRepresentable`
-wrappers around `CABasicAnimation` on pre-rendered `CALayer`s, so the work happens in
-the render server and the app process stays idle. `AuroraBackdrop.swift` documents this
-at length — it is not a candidate for "simplification" back to SwiftUI.
+**The ambient surface is static.**
+The Coastal Atlas background is one `Canvas` pass plus a cached paper-grain tile. It has
+no timer, display link or perpetual animation, so an open static screen does not keep
+invalidating SwiftUI. `AtlasBackdrop.swift` owns that rendering, while scan progress only
+animates when its measured value changes.
 
 **Sampling stops when nobody can see it.**
 Live metrics run at two seconds while a window is on screen and drop to ten as soon as

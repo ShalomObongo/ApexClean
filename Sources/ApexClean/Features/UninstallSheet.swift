@@ -53,7 +53,7 @@ struct UninstallSheet: View {
             VStack(alignment: .trailing, spacing: 1) {
                 Text(Bytes.format(model.planSelectedBytes))
                     .font(Typo.metric(20, weight: .bold))
-                    .foregroundStyle(Palette.accentGradient)
+                    .foregroundStyle(Palette.info)
                 Text("selected")
                     .font(Typo.caption)
                     .foregroundStyle(Palette.inkTertiary(scheme))
@@ -261,7 +261,7 @@ struct UninstallSheet: View {
                 Circle().fill(Palette.jade.opacity(0.13)).frame(width: 70, height: 70)
                 Image(systemName: "checkmark")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Palette.accentGradient)
+                    .foregroundStyle(Palette.info)
             }
             Text("Removed \(Bytes.format(outcome.bytesReclaimed))")
                 .font(Typo.metric(22, weight: .bold))

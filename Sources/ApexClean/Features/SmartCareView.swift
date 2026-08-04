@@ -62,7 +62,7 @@ struct SmartCareView: View {
                     Text("Reclaimed to date").eyebrowStyle(scheme)
                     Text(Bytes.format(state.totalReclaimedEver))
                         .font(Typo.metric(19, weight: .bold))
-                        .foregroundStyle(Palette.accentGradient)
+                        .foregroundStyle(Palette.info)
                 }
             }
         }
@@ -81,27 +81,106 @@ struct SmartCareView: View {
     // MARK: - Hero
 
     private var hero: some View {
-        ApexCard(padding: 30) {
-            VStack(spacing: 22) {
+        ApexCard(padding: 0, accent: model.stage == .scanning ? Palette.dustyBlue : nil) {
+            HStack(spacing: 0) {
                 ReclaimDial(
                     phase: dialPhase,
                     segments: model.dialSegments,
                     totalBytes: heroBytes,
+                    diameter: 230,
                     highlighted: model.focusedCategory
                 )
-                .padding(.top, 6)
+                .padding(28)
+                .frame(width: 322)
 
-                if model.stage == .scanning {
-                    scanProgressStrip
+                Rectangle()
+                    .fill(Palette.contour(scheme))
+                    .frame(width: 1)
+
+                VStack(alignment: .leading, spacing: 15) {
+                    heroMetric
+
+                    Text(heroDetail)
+                        .font(Typo.body)
+                        .foregroundStyle(Palette.inkSecondary(scheme))
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    if model.stage == .scanning {
+                        scanProgressStrip
+                    }
+
+                    actions
+
+                    if model.stage == .reviewing {
+                        selectionSummary
+                    }
                 }
-
-                actions
-
-                if model.stage == .reviewing {
-                    selectionSummary
-                }
+                .padding(30)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .frame(maxWidth: .infinity)
+        }
+    }
+
+    @ViewBuilder
+    private var heroMetric: some View {
+        switch model.stage {
+        case .idle:
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Storage map").eyebrowStyle(scheme)
+                Text("Ready to inspect")
+                    .font(Typo.display(32, weight: .bold))
+                    .foregroundStyle(Palette.ink(scheme))
+            }
+
+        case .scanning:
+            metricBlock(label: "Mapped so far", bytes: model.progress.bytesFound)
+
+        case .reviewing, .cleaning:
+            metricBlock(label: "Reclaimable", bytes: model.report.totalBytes)
+
+        case .finished:
+            if model.report.isEmpty {
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("Scan complete").eyebrowStyle(scheme)
+                    Text("All clear")
+                        .font(Typo.display(32, weight: .bold))
+                        .foregroundStyle(Palette.positive)
+                }
+            } else {
+                metricBlock(label: "Still reclaimable", bytes: model.report.totalBytes)
+            }
+        }
+    }
+
+    private func metricBlock(label: String, bytes: Int64) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label).eyebrowStyle(scheme)
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(Bytes.parts(bytes).value)
+                    .font(Typo.metric(48, weight: .bold))
+                    .foregroundStyle(Palette.ink(scheme))
+                    .contentTransition(.numericText())
+                Text(Bytes.parts(bytes).unit)
+                    .font(Typo.metric(19, weight: .semibold))
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+            }
+        }
+    }
+
+    private var heroDetail: String {
+        switch model.stage {
+        case .idle:
+            "Run a read-only pass. Every category and path remains reviewable before anything moves."
+        case .scanning:
+            "Building a local map. Nothing is being changed."
+        case .reviewing:
+            "Approve each finding, then remove only the storage you selected."
+        case .cleaning:
+            "Moving the approved paths while keeping the operation log exact."
+        case .finished:
+            model.report.isEmpty
+                ? "No reclaimable storage was found in the locations you included."
+                : "The remaining findings are still available for review."
         }
     }
 
@@ -123,9 +202,10 @@ struct SmartCareView: View {
         VStack(spacing: 8) {
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Palette.hairline(scheme))
-                    Capsule()
-                        .fill(Palette.accentGradientWide)
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Palette.contour(scheme).opacity(0.16))
+                    RoundedRectangle(cornerRadius: 2, style: .continuous)
+                        .fill(Palette.dustyBlue)
                         .frame(width: geometry.size.width * model.progress.fraction)
                         .animation(Motion.stream, value: model.progress.fraction)
                 }
@@ -142,14 +222,14 @@ struct SmartCareView: View {
                     .foregroundStyle(Palette.inkTertiary(scheme))
             }
         }
-        .frame(maxWidth: 420)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
     private var actions: some View {
         switch model.stage {
         case .idle:
-            ApexButton(title: "Scan my Mac", symbol: "sparkles", kind: .primary, size: .large) {
+            ApexButton(title: "Scan my Mac", symbol: "scope", kind: .primary, size: .large) {
                 model.scan()
             }
         case .scanning:
@@ -287,7 +367,7 @@ struct SmartCareView: View {
                             .frame(width: 46, height: 46)
                         Image(systemName: "checkmark")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(Palette.accentGradient)
+                            .foregroundStyle(Palette.info)
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Reclaimed \(Bytes.format(outcome.bytesReclaimed))")

@@ -1,7 +1,6 @@
 import SwiftUI
 
-/// The standard surface: hairline border, a specular catch on the top edge, and
-/// a soft shadow. Optional hover lift for anything interactive.
+/// Flat outlined paper panel used across the Coastal Atlas interface.
 struct ApexCard<Content: View>: View {
     var padding: CGFloat = Metrics.cardPadding
     var radius: CGFloat = Metrics.cardRadius
@@ -19,65 +18,38 @@ struct ApexCard<Content: View>: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(surface)
             .overlay(border)
-            .overlay(specularEdge)
+            .overlay(alignment: .leading) {
+                if let accent {
+                    Rectangle()
+                        .fill(accent)
+                        .frame(width: 3)
+                        .padding(.vertical, 9)
+                }
+            }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .shadow(
-                color: .black.opacity(scheme == .dark ? 0.34 : 0.09),
-                radius: hovering && interactive ? 22 : 14,
-                x: 0,
-                y: hovering && interactive ? 10 : 6
-            )
-            .scaleEffect(hovering && interactive && !reduceMotion ? 1.006 : 1)
+            .scaleEffect(hovering && interactive && !reduceMotion ? 1.003 : 1)
             .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: hovering)
             .onHover { hovering = $0 }
     }
 
-    /// Opaque rather than material-backed.
-    ///
-    /// A translucent material over the drifting backdrop forces the compositor
-    /// to recompute its blur on every frame, for every card on screen — the
-    /// single most expensive thing this UI could do at idle. The card reads as a
-    /// distinct surface through its fill, hairline and specular edge instead,
-    /// which is also more legible over moving colour.
     private var surface: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .fill(Palette.surface(scheme).opacity(scheme == .dark ? 0.94 : 0.97))
+            .fill(
+                hovering && interactive
+                    ? Palette.surfaceRaised(scheme)
+                    : Palette.surface(scheme)
+            )
     }
 
     private var border: some View {
         RoundedRectangle(cornerRadius: radius, style: .continuous)
             .strokeBorder(
-                LinearGradient(
-                    colors: [
-                        (accent ?? Palette.hairline(scheme))
-                            .opacity(accent != nil ? (hovering ? 0.55 : 0.30) : 1),
-                        Palette.hairline(scheme).opacity(0.6),
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                ),
-                lineWidth: 1
+                accent?.opacity(hovering ? 0.9 : 0.65) ?? Palette.contour(scheme),
+                lineWidth: 1.15
             )
-    }
-
-    /// A one-pixel highlight along the top edge only. This is the detail that
-    /// makes a flat rectangle read as a physical panel catching room light.
-    private var specularEdge: some View {
-        RoundedRectangle(cornerRadius: radius, style: .continuous)
-            .strokeBorder(
-                LinearGradient(
-                    colors: [Palette.specular(scheme), .clear],
-                    startPoint: .top,
-                    endPoint: .center
-                ),
-                lineWidth: 1
-            )
-            .blendMode(scheme == .dark ? .plusLighter : .normal)
-            .allowsHitTesting(false)
     }
 }
 
-/// Rounded-square glyph tile used for category and module identity.
 struct GlyphTile: View {
     let symbol: String
     var tint: Color
@@ -87,32 +59,21 @@ struct GlyphTile: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.31, style: .continuous)
-            .fill(
-                filled
-                    ? AnyShapeStyle(
-                        LinearGradient(
-                            colors: [tint.opacity(0.30), tint.opacity(0.13)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    : AnyShapeStyle(Color.clear)
-            )
+        RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+            .fill(filled ? tint.opacity(scheme == .dark ? 0.20 : 0.16) : Color.clear)
             .overlay(
-                RoundedRectangle(cornerRadius: size * 0.31, style: .continuous)
-                    .strokeBorder(tint.opacity(0.28), lineWidth: 1)
+                RoundedRectangle(cornerRadius: size * 0.25, style: .continuous)
+                    .strokeBorder(Palette.contour(scheme), lineWidth: 1)
             )
             .overlay(
                 Image(systemName: symbol)
                     .font(.system(size: size * 0.42, weight: .semibold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(scheme == .dark ? tint : Palette.charcoal)
             )
             .frame(width: size, height: size)
     }
 }
 
-/// Compact status pill.
 struct Chip: View {
     let text: String
     var tint: Color
@@ -132,17 +93,16 @@ struct Chip: View {
         .padding(.vertical, 3)
         .background(
             RoundedRectangle(cornerRadius: Metrics.chipRadius, style: .continuous)
-                .fill(tint.opacity(0.13))
+                .fill(tint.opacity(scheme == .dark ? 0.18 : 0.12))
         )
         .overlay(
             RoundedRectangle(cornerRadius: Metrics.chipRadius, style: .continuous)
-                .strokeBorder(tint.opacity(0.22), lineWidth: 0.5)
+                .strokeBorder(Palette.contour(scheme), lineWidth: 0.8)
         )
         .fixedSize()
     }
 }
 
-/// Section heading with an eyebrow and optional trailing accessory.
 struct SectionHeader<Accessory: View>: View {
     let eyebrow: String
     let title: String

@@ -346,8 +346,9 @@ struct VitalsView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
-                            Capsule().fill(Palette.hairline(scheme))
-                            Capsule()
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .fill(Palette.hairline(scheme))
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
                                 .fill(Palette.load(fraction))
                                 .frame(width: max(2, geometry.size.width * fraction))
                         }

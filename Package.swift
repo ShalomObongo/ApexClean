@@ -16,6 +16,7 @@ let package = Package(
         .executableTarget(
             name: "ApexClean",
             dependencies: ["ApexCore"],
+            resources: [.process("Resources")],
             swiftSettings: [.unsafeFlags(["-suppress-warnings"], .when(configuration: .release))]
         ),
         .testTarget(name: "ApexCoreTests", dependencies: ["ApexCore"]),

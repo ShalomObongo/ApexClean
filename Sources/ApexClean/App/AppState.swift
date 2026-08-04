@@ -38,8 +38,8 @@ enum Destination: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
-        case .smartCare: "sparkles"
-        case .cleanup: "wand.and.rays"
+        case .smartCare: "scope"
+        case .cleanup: "checklist"
         case .applications: "square.grid.2x2"
         case .maintenance: "wrench.adjustable"
         case .spaceLens: "square.grid.3x3.topleft.filled"
@@ -64,13 +64,13 @@ enum Destination: String, CaseIterable, Identifiable {
 
     var tint: Color {
         switch self {
-        case .smartCare: Palette.jade
-        case .cleanup: Palette.cyan
-        case .applications: Color(hex: 0x8B7FF0)
-        case .maintenance: Color(hex: 0xF5B841)
-        case .spaceLens: Color(hex: 0xE86FC4)
-        case .vitals: Color(hex: 0x59A5F5)
-        case .history: Color(hex: 0x7A8798)
+        case .smartCare: Palette.brick
+        case .cleanup: Palette.info
+        case .applications: Palette.seaSage
+        case .maintenance: Palette.caution
+        case .spaceLens: Color(hex: 0xA894B2)
+        case .vitals: Palette.info
+        case .history: Color(hex: 0x81909A)
         }
     }
 }

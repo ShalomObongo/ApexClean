@@ -83,7 +83,7 @@ struct SpaceLensView: View {
             Spacer()
             Image(systemName: "square.grid.3x3.topleft.filled")
                 .font(.system(size: 42, weight: .light))
-                .foregroundStyle(Palette.accentGradient)
+                .foregroundStyle(Palette.info)
             Text("Nothing mapped yet")
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
@@ -364,7 +364,7 @@ struct SpaceLensView: View {
                     .lineLimit(2)
                 Text(Bytes.format(node.bytes))
                     .font(Typo.metric(26, weight: .bold))
-                    .foregroundStyle(Palette.accentGradient)
+                    .foregroundStyle(Palette.info)
                 Text(Glob.display(node.url.path))
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(Palette.inkTertiary(scheme))
@@ -492,8 +492,8 @@ struct SpaceLensView: View {
 /// meaning that does not exist — size is the data, colour is only separation.
 func tileColor(_ index: Int) -> Color {
     [
-        Palette.jade, Palette.cyan, Color(hex: 0x8B7FF0),
-        Color(hex: 0xF5B841), Color(hex: 0xE86FC4), Color(hex: 0x59A5F5),
+        Palette.seaSage, Palette.dustyBlue, Palette.sand,
+        Color(hex: 0xA894B2), Palette.brick, Color(hex: 0x91A878),
     ][index % 6]
 }
 
@@ -511,16 +511,7 @@ private struct TreemapTile: View {
         let showsLabel = tile.rect.width > 62 && tile.rect.height > 34
 
         RoundedRectangle(cornerRadius: 5, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [
-                        color.opacity(isHovered || isSelected ? 0.62 : 0.36),
-                        color.opacity(isHovered || isSelected ? 0.36 : 0.18),
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            )
+            .fill(color.opacity(isHovered || isSelected ? 0.62 : 0.30))
             .overlay(
                 RoundedRectangle(cornerRadius: 5, style: .continuous)
                     .strokeBorder(
@@ -545,7 +536,6 @@ private struct TreemapTile: View {
                 }
             }
             .padding(1)
-            .shadow(color: color.opacity(isHovered ? 0.4 : 0), radius: 10)
             .animation(Motion.tactile, value: isHovered)
             .animation(Motion.tactile, value: isSelected)
             .help("\(tile.node.name) — \(Bytes.format(tile.node.bytes))")

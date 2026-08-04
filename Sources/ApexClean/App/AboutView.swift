@@ -21,14 +21,7 @@ struct AboutView: View {
 
     var body: some View {
         ZStack {
-            Palette.canvasDeep(scheme).ignoresSafeArea()
-
-            LinearGradient(
-                colors: [Palette.jade.opacity(scheme == .dark ? 0.14 : 0.10), .clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            .ignoresSafeArea()
+            AtlasBackdrop(intensity: 0.45)
 
             VStack(spacing: 0) {
                 header
@@ -45,7 +38,6 @@ struct AboutView: View {
         VStack(spacing: 10) {
             AppMark(size: 62)
                 .padding(.top, 30)
-                .shadow(color: Palette.jade.opacity(0.30), radius: 20, y: 6)
 
             Text("ApexClean")
                 .font(Typo.display(25, weight: .bold))
@@ -147,7 +139,7 @@ struct AboutView: View {
                     .font(.system(size: 9, weight: .bold))
                 Text(label).font(Typo.secondary.weight(.medium))
             }
-            .foregroundStyle(Palette.jade)
+            .foregroundStyle(Palette.info)
         }
         .buttonStyle(.plain)
         .pointingHandCursor()

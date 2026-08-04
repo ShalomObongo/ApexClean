@@ -40,6 +40,13 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 
 cp "$BINARY" "$APP/Contents/MacOS/ApexClean"
 
+RESOURCE_BUNDLE="$(dirname "$BINARY")/ApexClean_ApexClean.bundle"
+[ -d "$RESOURCE_BUNDLE" ] || {
+    echo "error: no resource bundle at $RESOURCE_BUNDLE" >&2
+    exit 1
+}
+cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/ApexClean_ApexClean.bundle"
+
 # GPL-3.0 requires the license to travel with the binary.
 cp "$ROOT/LICENSE" "$APP/Contents/Resources/LICENSE"
 cp "$ROOT/NOTICE" "$APP/Contents/Resources/NOTICE"
@@ -47,7 +54,8 @@ cp "$ROOT/NOTICE" "$APP/Contents/Resources/NOTICE"
 echo "==> Rendering icon"
 ICONSET="$ROOT/.build/ApexClean.iconset"
 rm -rf "$ICONSET"
-swift "$ROOT/Scripts/make-icon.swift" "$ICONSET" >/dev/null
+swift "$ROOT/Scripts/make-icon.swift" \
+    "$ICONSET" "$ROOT/Sources/ApexClean/Resources/CoastalAtlasAppIcon.png" >/dev/null
 iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST

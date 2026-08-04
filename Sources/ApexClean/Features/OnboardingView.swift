@@ -15,8 +15,7 @@ struct OnboardingView: View {
 
     var body: some View {
         ZStack {
-            Palette.canvas(scheme).opacity(0.98)
-            AuroraBackdrop(intensity: 0.7, energy: 0)
+            AtlasBackdrop(intensity: 0.7)
 
             VStack(spacing: 0) {
                 content
@@ -57,7 +56,12 @@ struct OnboardingView: View {
     private var welcome: some View {
         VStack(spacing: 20) {
             Spacer()
-            AppMark(size: 84)
+            Image(nsImage: CoastalAssets.welcome)
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .frame(width: 330, height: 190)
+                .accessibilityHidden(true)
 
             VStack(spacing: 10) {
                 Text("ApexClean")
@@ -66,7 +70,7 @@ struct OnboardingView: View {
 
                 Text("Mac care, transparently.")
                     .font(Typo.sectionTitle)
-                    .foregroundStyle(Palette.accentGradientWide)
+                    .foregroundStyle(Palette.info)
             }
 
             Text(
@@ -132,7 +136,7 @@ struct OnboardingView: View {
                 )
                 principle(
                     symbol: "lock.shield",
-                    tint: Color(hex: 0x8B7FF0),
+                    tint: Palette.sand,
                     title: "Nothing leaves your Mac",
                     detail: "There is no network code in this app. No telemetry, no account, no analytics."
                 )
@@ -432,7 +436,7 @@ private struct StepDots: View {
     var body: some View {
         HStack(spacing: 6) {
             ForEach(0..<total, id: \.self) { index in
-                Capsule()
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
                     .fill(index == current ? Palette.jade : Palette.inkTertiary(scheme).opacity(0.35))
                     .frame(width: index == current ? 18 : 6, height: 6)
                     .animation(Motion.tactile, value: current)

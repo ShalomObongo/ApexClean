@@ -1,80 +1,68 @@
 import SwiftUI
 
-/// The ApexClean palette.
-///
-/// Built around a jade→cyan signature rather than the pink/violet that
-/// dominates this category, and anchored on a cool near-black canvas so the
-/// accent reads as light rather than paint.
+/// Coastal Atlas palette: warm paper, restrained coastal colour and one brick action.
 enum Palette {
+    static let bone = Color(hex: 0xE7E2D6)
+    static let seaSage = Color(hex: 0xA9C3C0)
+    static let sand = Color(hex: 0xD9BFA4)
+    static let dustyBlue = Color(hex: 0x7E9AA6)
+    static let brick = Color(hex: 0xC24E3C)
+    static let charcoal = Color(hex: 0x26384A)
+
     // MARK: - Canvas
 
     static func canvas(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x080B0F) : Color(hex: 0xF4F3EF)
+        scheme == .dark ? Color(hex: 0x172126) : bone
     }
 
-    static func canvasDeep(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x05070A) : Color(hex: 0xEBE9E4)
-    }
-
-    /// Card fill. Deliberately close to the canvas — separation comes from the
-    /// hairline and the shadow, not from a big tonal jump.
     static func surface(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x11161D) : Color(hex: 0xFFFFFF)
+        scheme == .dark ? Color(hex: 0x202B31) : Color(hex: 0xF7F3EA)
     }
 
     static func surfaceRaised(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x161C25) : Color(hex: 0xFFFFFF)
+        scheme == .dark ? Color(hex: 0x28343A) : Color(hex: 0xEEE9DE)
+    }
+
+    static func sidebar(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(hex: 0x141D22) : Color(hex: 0xEFEADF)
+    }
+
+    static func contour(_ scheme: ColorScheme) -> Color {
+        scheme == .dark ? seaSage.opacity(0.48) : charcoal.opacity(0.72)
     }
 
     static func hairline(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.075) : Color.black.opacity(0.08)
-    }
-
-    /// The 1px light catch along a card's top edge that sells physical depth.
-    static func specular(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.10) : Color.white.opacity(0.9)
+        contour(scheme).opacity(scheme == .dark ? 0.48 : 0.30)
     }
 
     // MARK: - Ink
 
     static func ink(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0xF2F5F8) : Color(hex: 0x12161B)
+        scheme == .dark ? Color(hex: 0xF2EDE1) : Color(hex: 0x24313D)
     }
 
     static func inkSecondary(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x99A4B2) : Color(hex: 0x5C6773)
+        scheme == .dark ? Color(hex: 0xBBC4C6) : Color(hex: 0x566570)
     }
 
     static func inkTertiary(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x5F6C7B) : Color(hex: 0x8B95A1)
+        scheme == .dark ? Color(hex: 0x849296) : Color(hex: 0x7D878C)
     }
 
-    // MARK: - Signature accent
+    // MARK: - Compatibility accents
 
-    static let jade = Color(hex: 0x2FE0A0)
-    static let cyan = Color(hex: 0x24CFE8)
-    static let deepCyan = Color(hex: 0x1AA5D8)
-
-    static let accentGradient = LinearGradient(
-        colors: [jade, cyan],
-        startPoint: .topLeading,
-        endPoint: .bottomTrailing
-    )
-
-    static let accentGradientWide = LinearGradient(
-        colors: [jade, cyan, deepCyan],
-        startPoint: .leading,
-        endPoint: .trailing
-    )
+    static let jade = Color.adaptive(light: 0x426E5A, dark: 0x9BC7B0)
+    static let cyan = Color.adaptive(light: 0x4F7180, dark: 0x9BBAC5)
+    static let action = brick
 
     // MARK: - Semantics
 
-    static let positive = Color(hex: 0x35D48A)
-    static let caution = Color(hex: 0xF5B841)
-    static let alert = Color(hex: 0xF2685C)
-    static let info = Color(hex: 0x59A5F5)
+    static let positive = jade
+    static let caution = Color.adaptive(light: 0x81501E, dark: 0xE2AE6B)
+    static let alert = Color.adaptive(light: 0x8F3832, dark: 0xF27A70)
+    static let alertFill = Color(hex: 0xA9443A)
+    static let info = cyan
 
-    /// Status colour for a 0…100 health score.
     static func health(_ score: Int) -> Color {
         switch score {
         case 85...: positive
@@ -84,11 +72,10 @@ enum Palette {
         }
     }
 
-    /// Colour for a 0…1 utilisation ratio, where more is worse.
     static func load(_ fraction: Double) -> Color {
         switch fraction {
         case ..<0.6: jade
-        case ..<0.8: Color(hex: 0x8BD44E)
+        case ..<0.8: cyan
         case ..<0.92: caution
         default: alert
         }
@@ -96,30 +83,19 @@ enum Palette {
 
     // MARK: - Category identity
 
-    /// Each cleanup category gets a stable hue so a colour becomes learnable
-    /// shorthand for a kind of finding.
     static func category(_ id: String) -> Color {
         switch id {
-        case "userCaches": Color(hex: 0x2FE0A0)
-        case "appLogs": Color(hex: 0x59A5F5)
-        case "systemJunk": Color(hex: 0x8B7FF0)
-        case "browserData": Color(hex: 0x24CFE8)
-        case "developerJunk": Color(hex: 0xF5B841)
-        case "aiTools": Color(hex: 0xE86FC4)
-        case "leftovers": Color(hex: 0xFF8A5B)
-        case "installers": Color(hex: 0x9BD44E)
-        case "trash": Color(hex: 0xF2685C)
-        default: Color(hex: 0x7A8798)
+        case "userCaches": jade
+        case "appLogs": cyan
+        case "systemJunk": Color.adaptive(light: 0x6D5878, dark: 0xC2AEC9)
+        case "browserData": Color.adaptive(light: 0x3F7772, dark: 0x9CCBC6)
+        case "developerJunk": Color.adaptive(light: 0x7D5A27, dark: 0xE0B475)
+        case "aiTools": Color.adaptive(light: 0x765266, dark: 0xD4A9BD)
+        case "leftovers": Color.adaptive(light: 0x9A3D36, dark: 0xF07A6F)
+        case "installers": Color.adaptive(light: 0x567044, dark: 0xB6CC9D)
+        case "trash": Color.adaptive(light: 0x87332F, dark: 0xF27A70)
+        default: Color.adaptive(light: 0x53636D, dark: 0xB2BEC3)
         }
-    }
-
-    static func categoryGradient(_ id: String) -> LinearGradient {
-        let base = category(id)
-        return LinearGradient(
-            colors: [base, base.mixed(with: cyan, amount: 0.35)],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
     }
 }
 
@@ -132,6 +108,20 @@ extension Color {
             blue: Double(hex & 0xFF) / 255,
             opacity: opacity
         )
+    }
+
+    static func adaptive(light: UInt32, dark: UInt32) -> Color {
+        Color(
+            nsColor: NSColor(name: nil) { appearance in
+                let match = appearance.bestMatch(from: [.darkAqua, .aqua])
+                let value = match == .darkAqua ? dark : light
+                return NSColor(
+                    srgbRed: CGFloat((value >> 16) & 0xFF) / 255,
+                    green: CGFloat((value >> 8) & 0xFF) / 255,
+                    blue: CGFloat(value & 0xFF) / 255,
+                    alpha: 1
+                )
+            })
     }
 
     /// Blends toward another colour. Used to derive gradient partners from a
