@@ -2,16 +2,18 @@
 
 <br>
 
-<img src="docs/images/icon.png" width="132" alt="ApexClean">
+<img src="docs/images/icon.png" width="112" alt="ApexClean Coastal Atlas icon">
+
+<p><sub><b>COASTAL ATLAS FOR macOS</b></sub></p>
 
 <h1>ApexClean</h1>
 
-<h3>Mac care, transparently.</h3>
+<h3>Storage, clearly mapped.</h3>
 
 <p>
 A free, native macOS care app that finds reclaimable space, uninstalls apps completely,<br>
 runs bounded maintenance, maps your disk and reports live system health —<br>
-and shows you <b>everything</b> before it touches <b>anything</b>.
+then shows you <b>everything</b> before it touches <b>anything</b>.
 </p>
 
 <p>
@@ -20,12 +22,12 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 </p>
 
 <p>
-<img src="https://img.shields.io/badge/macOS-14%2B-2FE0A0?style=for-the-badge&logo=apple&logoColor=FFFFFF&labelColor=11161D" alt="macOS 14+">
-<img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-24CFE8?style=for-the-badge&labelColor=11161D" alt="Universal">
-<img src="https://img.shields.io/badge/Swift-5.9%2B-F5B841?style=for-the-badge&logo=swift&logoColor=FFFFFF&labelColor=11161D" alt="Swift 5.9+">
-<img src="https://img.shields.io/badge/tests-110_passing-35D48A?style=for-the-badge&labelColor=11161D" alt="110 tests">
-<img src="https://img.shields.io/badge/telemetry-none-8B7FF0?style=for-the-badge&labelColor=11161D" alt="No telemetry">
-<img src="https://img.shields.io/badge/license-GPL--3.0-E86FC4?style=for-the-badge&labelColor=11161D" alt="GPL-3.0">
+<img src="https://img.shields.io/badge/macOS-14%2B-4F7180?style=flat-square&logo=apple&logoColor=FFFFFF&labelColor=26384A" alt="macOS 14+">
+<img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-426E5A?style=flat-square&labelColor=26384A" alt="Universal">
+<img src="https://img.shields.io/badge/Swift-5.9%2B-81501E?style=flat-square&logo=swift&logoColor=FFFFFF&labelColor=26384A" alt="Swift 5.9+">
+<img src="https://img.shields.io/badge/tests-144_passing-426E5A?style=flat-square&labelColor=26384A" alt="144 tests">
+<img src="https://img.shields.io/badge/telemetry-none-6D5878?style=flat-square&labelColor=26384A" alt="No telemetry">
+<img src="https://img.shields.io/badge/license-GPL--3.0-8F3832?style=flat-square&labelColor=26384A" alt="GPL-3.0">
 </p>
 
 <p>
@@ -34,6 +36,8 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 <a href="#the-safety-model"><b>Safety</b></a>
 &nbsp;·&nbsp;
 <a href="#privacy"><b>Privacy</b></a>
+&nbsp;·&nbsp;
+<a href="#coastal-atlas"><b>Design</b></a>
 &nbsp;·&nbsp;
 <a href="#install"><b>Install</b></a>
 &nbsp;·&nbsp;
@@ -44,7 +48,7 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 
 <br>
 
-<img src="docs/images/smartcare.webp" width="880" alt="ApexClean Smart Care — a scan result showing 306 MB reclaimable, broken into approved groups">
+<img src="docs/images/smartcare.webp" width="100%" alt="Coastal Atlas Smart Care showing a segmented storage map and reviewable findings">
 
 <br><br>
 
@@ -54,7 +58,7 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 
 <div align="center">
 
-### Every cleaner asks you to trust it. This one shows its work.
+### Map first. Review everything. Act only when you approve.
 
 </div>
 
@@ -62,7 +66,7 @@ and shows you <b>everything</b> before it touches <b>anything</b>.
 <tr>
 <td width="33%" valign="top">
 
-#### It looks before it acts
+#### 01 / Map
 
 There is no button that deletes something you haven't seen. Every screen's primary
 action is a **scan**. Removal is a second, separate, deliberate act — and it operates
@@ -71,7 +75,7 @@ only on the groups you ticked.
 </td>
 <td width="33%" valign="top">
 
-#### It explains, it doesn't alarm
+#### 02 / Review
 
 No red badges, no invented "problems", no inflated savings. If a group is 52 KB it
 says 52 KB. If a size can't be measured it says **Size unknown** rather than guessing
@@ -80,7 +84,7 @@ zero. Maintenance tasks state what they *won't* fix.
 </td>
 <td width="33%" valign="top">
 
-#### It fails closed
+#### 03 / Act
 
 `PathGuard` is the single choke point in front of every deletion, and it must find an
 affirmative reason to allow one. Anything ambiguous is refused, not resolved. Removals
@@ -94,12 +98,29 @@ go to the **Trash**, so undo is a drag away.
 
 ---
 
+## Coastal Atlas
+
+The interface treats storage as a map, not a warning. Warm paper, one charcoal
+contour weight, restrained coastal colour and a single brick action keep every
+screen readable without making routine cache files look dangerous.
+
+| Principle | Visible consequence |
+| :--- | :--- |
+| **Flat, honest surfaces** | Opaque panels and real borders; no glass, glow or decorative depth |
+| **Data before decoration** | The storage map, exact byte count and selected scope always lead |
+| **One action colour** | Brick marks the next deliberate action; category colour only explains data |
+| **Native, accessible type** | Humanist hierarchy, tabular metrics and contrast-safe semantic colours |
+
+<br>
+
+---
+
 ## What it does
 
-### Smart Care — one scan, grouped findings
+### 01 / Smart Care — one scan, grouped findings
 
 <div align="center">
-<img src="docs/images/review.webp" width="820" alt="The removal confirmation sheet: a per-group breakdown, a recovery note, and an optional 'Empty the Trash afterwards' toggle">
+<img src="docs/images/review.webp" width="100%" alt="Coastal Atlas removal confirmation showing grouped scope, recovery and the final action">
 </div>
 
 One pass across every category. Findings come back **grouped, sized and explained** —
@@ -114,10 +135,10 @@ that macOS keeps the Trash private unless the app has Full Disk Access.
 
 <br>
 
-### Cleanup — 417 rules, every path inspectable
+### 02 / Cleanup — 417 rules, every path inspectable
 
 <div align="center">
-<img src="docs/images/cleanup.webp" width="820" alt="The Cleanup screen: category chips, expandable groups, per-path sizes and a running selection total">
+<img src="docs/images/cleanup.webp" width="100%" alt="Coastal Atlas Cleanup with category filters, expanded evidence and a running selection total">
 </div>
 
 Filter by category, expand any row to the exact paths, reveal any of them in Finder
@@ -141,10 +162,10 @@ rather than whole application-support trees.
 
 <br>
 
-### Applications — install, update, and actually uninstall
+### 03 / Applications — install, update, and actually uninstall
 
 <div align="center">
-<img src="docs/images/applications.webp" width="820" alt="The Applications screen listing every installed app with its real on-disk size">
+<img src="docs/images/applications.webp" width="100%" alt="Coastal Atlas Applications inventory sorted by real on-disk size">
 </div>
 
 Every installed app with its **real on-disk size**, sortable, searchable, with the last
@@ -154,14 +175,14 @@ itself at login.
 <table>
 <tr>
 <td width="50%" valign="top">
-<img src="docs/images/updates.webp" width="100%" alt="The Updates tab showing seven available application updates with version transitions">
+<img src="docs/images/updates.webp" width="100%" alt="The Coastal Atlas Updates tab showing exact application version transitions">
 <p align="center"><b>Updates</b></p>
 <p>Outdated apps with the exact version transition, one at a time or all at once,
 with live progress. Backed by Homebrew casks when they're available, and clear about
 it when they aren't.</p>
 </td>
 <td width="50%" valign="top">
-<img src="docs/images/uninstall.webp" width="100%" alt="The uninstall review sheet for Microsoft Word, listing the bundle, support folders and sandbox containers with per-item evidence">
+<img src="docs/images/uninstall.webp" width="100%" alt="The Coastal Atlas uninstall review listing the bundle and sandbox containers with per-item evidence">
 <p align="center"><b>Uninstall</b></p>
 <p>Every leftover shown with the reason it was matched, individually checkable. Nothing
 is claimed without evidence — a bundle identifier or a reverse-DNS boundary. Generic
@@ -172,10 +193,10 @@ names are refused rather than guessed.</p>
 
 <br>
 
-### Maintenance — bounded tasks that admit their limits
+### 04 / Maintenance — bounded tasks that admit their limits
 
 <div align="center">
-<img src="docs/images/maintenance.webp" width="820" alt="The Maintenance screen: ten selectable tasks, each with a description, a duration estimate and a 'What it does' disclosure">
+<img src="docs/images/maintenance.webp" width="100%" alt="Coastal Atlas Maintenance showing ten bounded tasks and their selected state">
 </div>
 
 Ten real macOS maintenance operations — flush DNS, rebuild the icon cache, verify the
@@ -188,23 +209,25 @@ specific broken states, and the app tells you which of those it actually found.
 
 <br>
 
-### Space Lens — a treemap you can navigate
+### 05 / Space Lens — a treemap you can navigate
 
 <div align="center">
-<img src="docs/images/spacelens.webp" width="880" alt="Space Lens showing a squarified treemap of ~/Library/Application Support with a contents list and largest-files panel">
+<img src="docs/images/spacelens.webp" width="100%" alt="Coastal Atlas Space Lens showing a safe demo folder as a navigable allocated-size treemap">
 </div>
 
 An interactive squarified treemap of any folder, measured by **allocated size** — the
 space you actually get back, not the logical size. Click a tile to inspect it,
 double-click to descend, breadcrumb back out. The side panel keeps a running contents
 list and the largest individual files, each one revealable or removable in place.
+The screenshot uses a synthetic demo folder so the documentation never publishes a
+personal file tree.
 
 <br>
 
-### Vitals — live, local, and cheap
+### 06 / Vitals — live, local, and cheap
 
 <div align="center">
-<img src="docs/images/vitals.webp" width="820" alt="The Vitals dashboard: health score breakdown, processor, memory, storage, network, battery and thermal panels with live sparklines">
+<img src="docs/images/vitals.webp" width="100%" alt="Coastal Atlas Vitals with an itemised health score and live metric panels">
 </div>
 
 CPU, memory pressure, storage, network throughput, battery, thermal state, fans,
@@ -214,10 +237,10 @@ that deducted it, so the number is auditable instead of decorative.
 
 <br>
 
-### Menu bar — quiet by design
+### 07 / Menu bar — quiet by design
 
 <div align="center">
-<img src="docs/images/menubar.webp" width="330" alt="The menu bar HUD: a health ring, five metric rows with sparklines, and an expanded processor row showing top processes">
+<img src="docs/images/menubar.webp" width="380" alt="Coastal Atlas menu bar HUD with health, processor, memory, storage, network and battery">
 </div>
 
 An opt-in status item with a health ring and expandable metric rows. Expand one to see
@@ -391,7 +414,7 @@ make run
 | `make ci` | Run everything CI runs, locally |
 | `make clean` | Remove build products |
 
-`make app` produces a self-contained **6.3 MB** `dist/ApexClean.app`. There is no Xcode
+`make app` produces a self-contained **7.2 MB** `dist/ApexClean.app`. There is no Xcode
 project — the whole build is a SwiftPM package plus `Scripts/bundle.sh`, so a checkout
 builds identically anywhere with no IDE state involved.
 
@@ -424,6 +447,7 @@ Sources/
 │   └── History/               OperationLog
 └── ApexClean/                 SwiftUI app
     ├── Design/                Palette, Typography, Motion, components
+    ├── Resources/             Coastal Atlas app icon and onboarding artwork
     ├── Features/              One model + one view per screen
     ├── MenuBar/               HUD
     └── App/                   AppState, RootView, About
@@ -485,7 +509,7 @@ the head of a serial queue would otherwise swallow every job behind it.
 swift test
 ```
 
-**110 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
+**144 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
 bounded execution, guarded directory listing, leftover-matching precision, uninstall
 plan invariants, catalog invariants, treemap layout, health scoring and byte formatting.
 
@@ -583,7 +607,7 @@ interaction model and product identity are original work.
 
 <img src="docs/images/icon.png" width="56" alt="">
 
-<p><b>ApexClean</b> · Mac care, transparently.<br>
+<p><b>ApexClean</b> · Storage, clearly mapped.<br>
 <sub>Free software. No telemetry. Trash-first. Fails closed.</sub></p>
 
 </div>
