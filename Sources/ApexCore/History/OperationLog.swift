@@ -18,6 +18,12 @@ public final class OperationLog: @unchecked Sendable {
             self.recoverable = recoverable
             self.date = date
         }
+
+    }
+
+    @available(*, deprecated, renamed: "totalProcessed()")
+    public func totalReclaimed() -> Int64 {
+        totalProcessed()
     }
 
     public struct Session: Codable, Identifiable, Hashable, Sendable {
@@ -54,9 +60,16 @@ public final class OperationLog: @unchecked Sendable {
 
         init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
-            version = try container.decodeIfPresent(Int.self, forKey: .version) ?? 1
-            entries = try container.decodeIfPresent([Entry].self, forKey: .entries) ?? []
-            sessions = try container.decodeIfPresent([Session].self, forKey: .sessions) ?? []
+            version = try container.decode(Int.self, forKey: .version)
+            guard version == 1 else {
+                throw DecodingError.dataCorruptedError(
+                    forKey: .version,
+                    in: container,
+                    debugDescription: "Unsupported operation-history version \(version)"
+                )
+            }
+            entries = try container.decode([Entry].self, forKey: .entries)
+            sessions = try container.decode([Session].self, forKey: .sessions)
             totalProcessed =
                 try container.decodeIfPresent(Int64.self, forKey: .totalProcessed)
                 ?? OperationLog.saturatingSum(sessions.map(\.bytes))
@@ -130,7 +143,7 @@ public final class OperationLog: @unchecked Sendable {
                         store.totalProcessed,
                         session.bytes
                     )
-                    store.totalSessions = min(Int.max, store.totalSessions + 1)
+                    store.totalSessions = Self.saturatingIncrement(store.totalSessions)
                     store.entries.append(contentsOf: entries)
                     store.sessions.append(session)
                     if store.entries.count > Self.retainedEntries {
@@ -152,6 +165,12 @@ public final class OperationLog: @unchecked Sendable {
             }
         }
     }
+
+    @available(*, unavailable, message: "Use commitSession(title:entries:) with operation-scoped entries")
+    public func record(_ entry: Entry) {}
+
+    @available(*, unavailable, message: "Use commitSession(title:entries:) with operation-scoped entries")
+    public func commitSession(title: String) -> Session? { nil }
 
     public func recentSessions(limit: Int = 25) -> [Session] {
         queue.sync {
@@ -255,5 +274,10 @@ public final class OperationLog: @unchecked Sendable {
 
     private static func saturatingSum(_ values: [Int64]) -> Int64 {
         values.reduce(0, saturatingAdd)
+    }
+
+    private static func saturatingIncrement(_ value: Int) -> Int {
+        let (result, overflow) = value.addingReportingOverflow(1)
+        return overflow ? Int.max : max(0, result)
     }
 }

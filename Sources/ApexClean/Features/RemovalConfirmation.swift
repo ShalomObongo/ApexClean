@@ -26,9 +26,9 @@ struct RemovalConfirmation: View {
             // headline with a number we could not measure would be theatre.
             if case let .holding(bytes, _) = model.trashState {
                 let total = Bytes.format(model.selectedBytes + bytes - model.selectedTrashBytes)
-                return "Erase \(total) with no way back?"
+                return "Erase at least \(total), plus Trash on other volumes?"
             }
-            return "Erase \(size) and the Trash, with no way back?"
+            return "Erase \(size) and all available Trash volumes, with no way back?"
         }
         if model.selectionMixesTrash {
             return "Move most items and permanently erase \(Bytes.format(model.selectedTrashBytes))?"
@@ -246,9 +246,9 @@ struct RemovalConfirmation: View {
         switch model.trashState {
         case let .holding(bytes, items):
             return
-                "\(Bytes.format(bytes)) in \(items) \(items == 1 ? "item" : "items") is already sitting in the Trash. Leave this off to keep today's cleanup recoverable."
+                "At least \(Bytes.format(bytes)) in \(items) \(items == 1 ? "item" : "items") is in the home Trash. Finder may also empty Trash on other volumes. Leave this off to keep today's cleanup recoverable."
         case .empty:
-            return "The Trash is empty, so this would only erase what this pass puts there."
+            return "The home Trash is empty. Finder may still empty Trash on other mounted volumes."
         case .unreadable:
             return
                 "macOS keeps the Trash private unless ApexClean has Full Disk Access, so its size is unknown. Finder will empty it."

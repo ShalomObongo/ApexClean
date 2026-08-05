@@ -169,29 +169,29 @@ final class PathGuardTests: XCTestCase {
                 "Must refuse EDR scratch path \(path)"
             )
         }
+    }
 
-        func testResolvedDataVolumeAliasCannotBypassPersonalDataProtection() throws {
-            let temporary = FileManager.default.temporaryDirectory
-                .appendingPathComponent(UUID().uuidString, isDirectory: true)
-            try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
-            defer { try? FileManager.default.removeItem(at: temporary) }
+    func testResolvedDataVolumeAliasCannotBypassPersonalDataProtection() throws {
+        let temporary = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: temporary) }
 
-            let dataDocuments = URL(
-                fileURLWithPath: "/System/Volumes/Data\(home.path)/Documents",
-                isDirectory: true
-            )
-            guard FileManager.default.fileExists(atPath: dataDocuments.path) else {
-                throw XCTSkip("The APFS Data-volume alias is unavailable on this host")
-            }
-
-            let link = temporary.appendingPathComponent("cache-link")
-            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dataDocuments)
-            let smuggled = link.appendingPathComponent("important.txt")
-            XCTAssertFalse(
-                PathGuard.evaluate(smuggled).isAllowed,
-                "A parent symlink to the Data-volume alias of Documents must be refused"
-            )
+        let dataHome = URL(
+            fileURLWithPath: "/System/Volumes/Data\(home.path)",
+            isDirectory: true
+        )
+        guard FileManager.default.fileExists(atPath: dataHome.path) else {
+            throw XCTSkip("The APFS Data-volume alias is unavailable on this host")
         }
+
+        let link = temporary.appendingPathComponent("cache-link")
+        try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dataHome)
+        let smuggled = link.appendingPathComponent("Documents")
+        XCTAssertFalse(
+            PathGuard.evaluate(smuggled).isAllowed,
+            "A parent symlink to the Data-volume alias of Documents must be refused"
+        )
     }
 
     // MARK: - Permissions

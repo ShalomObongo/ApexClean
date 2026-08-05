@@ -80,10 +80,13 @@ struct ApexButton: View {
             .opacity(isEnabled ? 1 : 0.42)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(Text(title))
-        .accessibilityAddTraits(.isButton)
-        .accessibilityValue(isLoading ? Text("Working") : Text(""))
-        .accessibilityHint(isLoading ? Text("This action is still running") : Text(""))
+        .accessibilityLabel(title)
+        // SwiftUI's macOS AX bridge can omit AXTitle for a plain custom
+        // button. Mirroring the action in AXValue keeps it named for VoiceOver.
+        .accessibilityValue(isLoading ? Text("\(title), working") : Text(title))
+        .accessibilityHint(
+            isLoading ? Text("This action is still running") : Text("Activates \(title)")
+        )
         .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: hovering)
         .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: pressed)
         .onHover { hovering = $0 && isEnabled }

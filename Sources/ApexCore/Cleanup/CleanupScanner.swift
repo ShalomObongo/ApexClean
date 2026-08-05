@@ -188,6 +188,8 @@ public final class CleanupScanner: @unchecked Sendable {
                     stoppedAfterTimeouts = true
                     break ruleLoop
                 }
+            case .cancelled:
+                break ruleLoop
             }
         }
 
@@ -206,6 +208,8 @@ public final class CleanupScanner: @unchecked Sendable {
                 if let trash { findingsByCategory[.trash] = [trash] }
             case .timedOut:
                 stalled.append("Trash")
+            case .cancelled:
+                break
             }
         }
 
@@ -247,6 +251,7 @@ public final class CleanupScanner: @unchecked Sendable {
     private enum BudgetResult<T> {
         case finished(T)
         case timedOut
+        case cancelled
     }
 
     /// Runs `work` on a throwaway thread and abandons it if it overruns.
@@ -268,10 +273,17 @@ public final class CleanupScanner: @unchecked Sendable {
             semaphore.signal()
         }
 
-        guard semaphore.wait(timeout: .now() + seconds) == .success, let value = box.get() else {
-            return .timedOut
+        let deadline =
+            DispatchTime.now().uptimeNanoseconds
+            + UInt64(max(0, seconds) * 1_000_000_000)
+        while DispatchTime.now().uptimeNanoseconds < deadline {
+            if isCancelled { return .cancelled }
+            if semaphore.wait(timeout: .now() + .milliseconds(100)) == .success {
+                guard let value = box.get() else { return .timedOut }
+                return .finished(value)
+            }
         }
-        return .finished(value)
+        return isCancelled ? .cancelled : .timedOut
     }
 
     private final class WorkBox<T>: @unchecked Sendable {

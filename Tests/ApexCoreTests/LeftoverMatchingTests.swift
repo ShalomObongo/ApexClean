@@ -29,6 +29,18 @@ final class LeftoverMatchingTests: XCTestCase {
         )
     }
 
+    func testRelatedBundleIdentifiersAreTreatedAsSharedOwnership() {
+        XCTAssertTrue(
+            LeftoverFinder.identifiersOverlap("com.vendor.app", "com.vendor.app.beta")
+        )
+        XCTAssertTrue(
+            LeftoverFinder.identifiersOverlap("com.vendor.app.helper", "com.vendor.app")
+        )
+        XCTAssertFalse(
+            LeftoverFinder.identifiersOverlap("com.vendor.app", "com.vendor.application")
+        )
+    }
+
     func testRejectsMalformedBundleIdentifiers() {
         // A bundle id containing glob metacharacters or separators must never
         // reach a `find -name` style pattern.
@@ -41,6 +53,24 @@ final class LeftoverMatchingTests: XCTestCase {
                 "\(identifier) must not be treated as a usable bundle id"
             )
         }
+    }
+
+    func testUninstallRefusesAnAppWithoutATrustworthyIdentifier() {
+        let app = InstalledApp(
+            url: URL(fileURLWithPath: "/Applications/Unidentified.app"),
+            name: "Unidentified",
+            bundleID: "",
+            version: "",
+            bundleBytes: 0,
+            lastUsed: nil,
+            installed: nil,
+            isRunning: false,
+            isSystem: false,
+            source: .direct
+        )
+        let verdict = LeftoverFinder.uninstallVerdict(for: app)
+        XCTAssertFalse(verdict.isAllowed)
+        XCTAssertTrue(verdict.reason?.contains("bundle identifier") == true)
     }
 
     func testAcceptsWellFormedBundleIdentifiers() {

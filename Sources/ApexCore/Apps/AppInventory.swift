@@ -212,10 +212,10 @@ public enum HomebrewBridge {
     /// app name, and without falsely claiming a hand-installed app that merely
     /// shares a name with some cask.
     public static func caskTokensByAppPath() -> [String: String] {
-        guard
-            let prefix = brewPath.map({ URL(fileURLWithPath: $0).deletingLastPathComponent() })?
-                .deletingLastPathComponent()
-        else { return [:] }
+        guard let brew = brewPath else { return [:] }
+        let prefix = URL(fileURLWithPath: brew)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
 
         let caskroom = prefix.appendingPathComponent("Caskroom")
         let fm = FileManager.default
@@ -237,7 +237,59 @@ public enum HomebrewBridge {
                 }
             }
         }
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "HOMEBREW_NO_AUTO_UPDATE": "1",
+            "HOMEBREW_NO_ANALYTICS": "1",
+            "HOMEBREW_NO_ENV_HINTS": "1",
+        ]) { _, new in new }
+        let metadata = Shell.runDetailed(
+            brew,
+            ["info", "--cask", "--json=v2", "--installed"],
+            timeout: 30,
+            environment: environment
+        )
+        if metadata.succeeded {
+            map.merge(parseCaskAppOwners(metadata.output.data(using: .utf8) ?? Data())) {
+                current, _ in current
+            }
+        }
         return map
+    }
+
+    static func parseCaskAppOwners(_ data: Data) -> [String: String] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let casks = root["casks"] as? [[String: Any]]
+        else { return [:] }
+
+        var result: [String: String] = [:]
+        for cask in casks {
+            guard let token = cask["token"] as? String,
+                let artifacts = cask["artifacts"]
+            else { continue }
+            for raw in strings(in: artifacts) where raw.lowercased().hasSuffix(".app") {
+                let expanded = raw.expandingTilde
+                let candidates =
+                    expanded.hasPrefix("/")
+                    ? [expanded]
+                    : [
+                        "/Applications/\(expanded)",
+                        PathGuard.home.appendingPathComponent("Applications/\(expanded)").path,
+                    ]
+                for path in candidates {
+                    result[URL(fileURLWithPath: path).standardizedFileURL.path] = token
+                }
+            }
+        }
+        return result
+    }
+
+    private static func strings(in value: Any) -> [String] {
+        if let string = value as? String { return [string] }
+        if let array = value as? [Any] { return array.flatMap(strings) }
+        if let dictionary = value as? [String: Any] {
+            return dictionary.values.flatMap(strings)
+        }
+        return []
     }
 
     public static func installedCaskTokens() -> Set<String> {

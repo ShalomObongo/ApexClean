@@ -25,7 +25,7 @@ then shows you <b>everything</b> before it touches <b>anything</b>.
 <img src="https://img.shields.io/badge/macOS-14%2B-4F7180?style=flat-square&logo=apple&logoColor=FFFFFF&labelColor=26384A" alt="macOS 14+">
 <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-426E5A?style=flat-square&labelColor=26384A" alt="Universal">
 <img src="https://img.shields.io/badge/Swift-5.9%2B-81501E?style=flat-square&logo=swift&logoColor=FFFFFF&labelColor=26384A" alt="Swift 5.9+">
-<img src="https://img.shields.io/badge/tests-176_passing-426E5A?style=flat-square&labelColor=26384A" alt="176 tests">
+<img src="https://img.shields.io/badge/tests-191_passing-426E5A?style=flat-square&labelColor=26384A" alt="191 tests">
 <img src="https://img.shields.io/badge/telemetry-none-6D5878?style=flat-square&labelColor=26384A" alt="No telemetry">
 <img src="https://img.shields.io/badge/license-GPL--3.0-8F3832?style=flat-square&labelColor=26384A" alt="GPL-3.0">
 </p>
@@ -511,9 +511,10 @@ the head of a serial queue would otherwise swallow every job behind it.
 swift test
 ```
 
-**176 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
-bounded execution, guarded directory listing, leftover-matching precision, uninstall
-plan invariants, catalog invariants, treemap layout, health scoring and byte formatting.
+**191 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
+bounded process groups, guarded directory and launch-plist reads, operation-history
+concurrency, Homebrew ownership, leftover-matching precision, uninstall plan invariants,
+catalog invariants, hardlink accounting, treemap layout, health scoring and byte formatting.
 
 > One caveat worth knowing: `xctest` inherits the terminal's TCC grants, so a scan that
 > would block on a consent dialog inside the app runs fine under test. Permission
@@ -525,8 +526,9 @@ plan invariants, catalog invariants, treemap layout, health scoring and byte for
 
 ## Continuous integration
 
-Every push and pull request runs the full gate. `make ci` runs the same checks
-locally, so a red build is reproducible without guessing at the runner.
+Every push and pull request runs formatting, strict concurrency, debug and release
+tests, AddressSanitizer, ThreadSanitizer, coverage, compliance and universal-bundle
+verification. `make ci` runs the core local formatting, test and bundle checks.
 
 | Job | Runner | What it enforces |
 |---|---|---|

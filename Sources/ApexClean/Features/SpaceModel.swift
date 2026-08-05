@@ -47,6 +47,9 @@ final class SpaceModel: ObservableObject {
     /// still be wedged in the kernel and can never be stopped.
     private var generation = 0
     private var watchdog: DispatchSourceTimer?
+    /// A removal can finish while a prior removal's refresh is still scanning.
+    /// Coalesce that later refresh instead of silently dropping it.
+    private var needsRescan = false
 
     /// Removals only. Scans deliberately do **not** run here: a scan that blocks
     /// forever inside `open()` would sit at the head of a serial queue and
@@ -125,6 +128,7 @@ final class SpaceModel: ObservableObject {
                     model.unreadablePaths = scanner.unreadablePaths
                     model.isScanning = false
                 }
+                model.runPendingRescan()
             }
         }
     }
@@ -174,6 +178,7 @@ final class SpaceModel: ObservableObject {
             stalledPath = path.isEmpty ? scanRoot.path : path
             isScanning = false
         }
+        runPendingRescan()
         Log.engine.warning("Space Lens abandoned an unresponsive path: \(path, privacy: .public)")
     }
 
@@ -190,6 +195,7 @@ final class SpaceModel: ObservableObject {
         // the flag, and the user pressed Stop expecting the UI to come back.
         generation += 1
         isScanning = false
+        needsRescan = false
     }
 
     /// A second click on an already-selected tile clears the selection, which
@@ -271,12 +277,7 @@ final class SpaceModel: ObservableObject {
                 model.largeFiles.removeAll { $0.url == url }
                 if model.selected == node { model.selected = nil }
                 if model.hovered == node { model.hovered = nil }
-                // Prune in place rather than rescanning: re-measuring a home
-                // folder takes minutes and the answer is already known.
-                withAnimation(Motion.stage) {
-                    node.parent?.prune(node)
-                    model.objectWillChange.send()
-                }
+                model.requestRescan()
             }
         }
     }
@@ -310,23 +311,24 @@ final class SpaceModel: ObservableObject {
                 }
                 withAnimation(Motion.enter) {
                     model.largeFiles.removeAll { $0.url == url }
-                    if let node = model.root.flatMap({ model.findNode(url: url, in: $0) }),
-                        let parent = node.parent
-                    {
-                        parent.prune(node)
-                        model.objectWillChange.send()
-                    }
                 }
+                model.requestRescan()
             }
         }
     }
 
-    private func findNode(url: URL, in node: SpaceNode) -> SpaceNode? {
-        if node.url.standardizedFileURL == url.standardizedFileURL { return node }
-        for child in node.children {
-            if let match = findNode(url: url, in: child) { return match }
+    private func requestRescan() {
+        if isScanning {
+            needsRescan = true
+        } else {
+            scan(scanRoot)
         }
-        return nil
+    }
+
+    private func runPendingRescan() {
+        guard needsRescan, !isScanning else { return }
+        needsRescan = false
+        scan(scanRoot)
     }
 
     func chooseFolder() {

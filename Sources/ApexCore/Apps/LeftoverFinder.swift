@@ -252,9 +252,18 @@ public enum LeftoverFinder {
                 scanDirectory(root) { url in
                     let file = url.lastPathComponent
                     guard file.hasSuffix(".plist") else { return }
-                    let label = String(file.dropLast(6))
-                    if label == bundleID || label.hasPrefix(bundleID + ".") {
-                        add(url, .launchAgents, "Launch agent labelled \(label)", .bundleIdentifier)
+                    let scope: StartupItem.Scope =
+                        root.path == home.appendingPathComponent("Library/LaunchAgents").path
+                        ? .userAgent
+                        : (root.lastPathComponent == "LaunchDaemons" ? .daemon : .globalAgent)
+                    guard let item = StartupInventory.describe(url, scope: scope) else { return }
+                    if item.label == bundleID || item.label.hasPrefix(bundleID + ".") {
+                        add(
+                            url,
+                            .launchAgents,
+                            "Launch agent labelled \(item.label)",
+                            .bundleIdentifier
+                        )
                     }
                 }
             }
@@ -355,6 +364,7 @@ public enum LeftoverFinder {
             if let range = candidate.range(of: "." + bundleID), range.upperBound == candidate.endIndex {
                 return true
             }
+
             if candidate.hasSuffix(bundleID), candidate.count > bundleID.count {
                 let index = candidate.index(candidate.endIndex, offsetBy: -bundleID.count - 1)
                 return candidate[index] == "."
@@ -363,6 +373,13 @@ public enum LeftoverFinder {
         }
         let remainder = candidate.dropFirst(bundleID.count)
         return remainder.isEmpty || remainder.hasPrefix(".")
+    }
+
+    public static func identifiersOverlap(_ lhs: String, _ rhs: String) -> Bool {
+        let left = lhs.lowercased()
+        let right = rhs.lowercased()
+        guard isReverseDNS(left), isReverseDNS(right) else { return false }
+        return hasBundleBoundary(left, right) || hasBundleBoundary(right, left)
     }
 
     /// Release-channel suffixes vendors append to the same product's name.
@@ -419,7 +436,12 @@ public enum LeftoverFinder {
         return URL(fileURLWithPath: name).lastPathComponent == name
     }
 
-    private static func uninstallVerdict(for app: InstalledApp) -> PathGuard.Verdict {
+    public static func uninstallVerdict(for app: InstalledApp) -> PathGuard.Verdict {
+        guard isReverseDNS(app.bundleID.lowercased()) else {
+            return .refused(
+                reason: "The app has no trustworthy bundle identifier, so ownership cannot be verified"
+            )
+        }
         let pathVerdict = PathGuard.canUninstall(bundleID: app.bundleID, path: app.url)
         guard pathVerdict.isAllowed else { return pathVerdict }
         let removalVerdict = PathGuard.evaluate(app.url)

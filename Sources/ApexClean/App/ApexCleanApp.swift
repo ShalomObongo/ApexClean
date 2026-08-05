@@ -21,7 +21,10 @@ struct ApexCleanApp: App {
         Window("ApexClean", id: "main") {
             RootView()
                 .environmentObject(state)
-                .onAppear { delegate.state = state }
+                .onAppear {
+                    delegate.state = state
+                    delegate.reopenMainWindow = { openWindow(id: "main") }
+                }
         }
         .defaultSize(width: 1_180, height: 780)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
@@ -76,6 +79,7 @@ struct ApexCleanApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
+    var reopenMainWindow: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -86,6 +90,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The menu bar HUD outlives the window; closing the window should not
         // quit an app whose whole point is to sit quietly in the menu bar.
         false
+    }
+
+    func applicationShouldHandleReopen(
+        _ sender: NSApplication,
+        hasVisibleWindows flag: Bool
+    ) -> Bool {
+        reopenMainWindow?()
+        return true
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

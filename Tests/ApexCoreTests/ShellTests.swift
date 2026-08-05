@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 @testable import ApexCore
@@ -19,10 +20,50 @@ final class ShellTests: XCTestCase {
         XCTAssertEqual(output?.count, 1_000_000)
     }
 
+    func testClosedParentStandardOutputCannotStealTheCaptureDescriptor() {
+        let savedOutput = dup(STDOUT_FILENO)
+        XCTAssertGreaterThanOrEqual(savedOutput, 0)
+        guard savedOutput >= 0 else { return }
+
+        let output: String? = {
+            fflush(stdout)
+            _ = close(STDOUT_FILENO)
+            defer { _ = dup2(savedOutput, STDOUT_FILENO) }
+            return Shell.run("/bin/echo", ["still captured"])
+        }()
+        _ = close(savedOutput)
+
+        XCTAssertEqual(
+            output?.trimmingCharacters(in: .whitespacesAndNewlines),
+            "still captured"
+        )
+    }
+
+    func testInvalidUTF8FailsClosedForSamplingButRemainsVisibleInDetailedOutput() {
+        let command = ["-c", "printf '\\377'"]
+        XCTAssertNil(Shell.run("/bin/sh", command))
+
+        let detailed = Shell.runDetailed("/bin/sh", command)
+        XCTAssertTrue(detailed.succeeded)
+        XCTAssertFalse(detailed.output.isEmpty)
+    }
+
     func testTimeoutTerminatesInsteadOfHanging() {
         let started = Date()
         _ = Shell.run("/bin/sleep", ["30"], timeout: 1)
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
+    }
+
+    func testTimeoutDoesNotReturnPartialOutputWhenChildClosesItsPipe() {
+        let started = Date()
+        let output = Shell.run(
+            "/bin/sh",
+            ["-c", "echo partial; exec 1>&-; sleep 30"],
+            timeout: 0.3
+        )
+        XCTAssertNil(output)
+        XCTAssertGreaterThan(Date().timeIntervalSince(started), 0.2)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 3)
     }
 
     func testDetailedTimeoutEscalatesPastIgnoredTerminateSignal() {
@@ -61,6 +102,67 @@ final class ShellTests: XCTestCase {
         )
     }
 
+    func testTimeoutTerminatesAChildReparentedAfterShellExit() throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        _ = Shell.runDetailed(
+            "/bin/sh",
+            ["-c", "sleep 30 & echo $! > '\(pidFile.path)'"],
+            timeout: 0.5
+        )
+
+        let raw = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try XCTUnwrap(Int32(raw))
+        let state = Shell.run(
+            "/bin/ps",
+            ["-p", "\(pid)", "-o", "stat="],
+            timeout: 2
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(
+            state == nil || state?.isEmpty == true || state?.hasPrefix("Z") == true,
+            "The orphaned child remained active in state \(state ?? "?")"
+        )
+    }
+
+    func testTimeoutTerminatesAChildThatEscapesIntoANewSession() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else {
+            throw XCTSkip("Perl is unavailable on this host")
+        }
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let script = """
+            setsid();
+            $SIG{TERM} = "IGNORE";
+            open(my $fh, ">", "\(pidFile.path)") or die;
+            print $fh "$$\\n";
+            close($fh);
+            sleep 30;
+            """
+
+        _ = Shell.runDetailed(
+            "/bin/sh",
+            ["-c", "/usr/bin/perl -MPOSIX=setsid -e '\(script)' &"],
+            timeout: 0.5
+        )
+
+        let raw = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try XCTUnwrap(Int32(raw))
+        let state = Shell.run(
+            "/bin/ps",
+            ["-p", "\(pid)", "-o", "stat="],
+            timeout: 2
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(
+            state == nil || state?.isEmpty == true || state?.hasPrefix("Z") == true,
+            "The session-escaping child remained active in state \(state ?? "?")"
+        )
+    }
+
     func testMissingExecutableReturnsNil() {
         XCTAssertNil(Shell.run("/definitely/not/a/binary", []))
     }
@@ -86,6 +188,61 @@ final class ShellTests: XCTestCase {
             lock.unlock()
         }
         XCTAssertEqual(Set(results as! [String]), Set((0..<8).map { "run-\($0)" }))
+    }
+
+    func testConcurrentCommandCannotInheritAnotherCommandsCapturePipe() {
+        let marker = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: marker) }
+        let output = LockedString()
+        let shortDone = DispatchSemaphore(value: 0)
+        let longDone = DispatchSemaphore(value: 0)
+
+        DispatchQueue.global().async {
+            output.set(
+                Shell.run(
+                    "/bin/sh",
+                    ["-c", "echo ready > '\(marker.path)'; sleep 0.2; echo short"],
+                    timeout: 0.8
+                )
+            )
+            shortDone.signal()
+        }
+
+        let markerDeadline = Date().addingTimeInterval(1)
+        while !FileManager.default.fileExists(atPath: marker.path), Date() < markerDeadline {
+            Thread.sleep(forTimeInterval: 0.01)
+        }
+        XCTAssertTrue(FileManager.default.fileExists(atPath: marker.path))
+
+        DispatchQueue.global().async {
+            _ = Shell.run("/bin/sleep", ["1.5"], timeout: 2)
+            longDone.signal()
+        }
+
+        XCTAssertEqual(shortDone.wait(timeout: .now() + 1), .success)
+        XCTAssertEqual(
+            output.get()?.trimmingCharacters(in: .whitespacesAndNewlines),
+            "short"
+        )
+        XCTAssertEqual(longDone.wait(timeout: .now() + 3), .success)
+    }
+}
+
+private final class LockedString: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: String?
+
+    func set(_ newValue: String?) {
+        lock.lock()
+        value = newValue
+        lock.unlock()
+    }
+
+    func get() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
     }
 }
 

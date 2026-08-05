@@ -1,4 +1,5 @@
 import AppKit
+import Darwin
 import Foundation
 
 /// Something macOS starts on your behalf.
@@ -35,6 +36,8 @@ public struct StartupItem: Identifiable, Hashable, Sendable {
 }
 
 public enum StartupInventory {
+    private static let maximumPlistBytes = 1_048_576
+
     public static func scan() -> [StartupItem] {
         var items: [StartupItem] = []
         let roots: [(URL, StartupItem.Scope)] = [
@@ -64,7 +67,7 @@ public enum StartupInventory {
     }
 
     static func describe(_ url: URL, scope: StartupItem.Scope) -> StartupItem? {
-        guard let data = try? Data(contentsOf: url),
+        guard let data = readPlist(at: url),
             let plist = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any]
         else { return nil }
 
@@ -164,5 +167,37 @@ public enum StartupInventory {
         let components = path.split(separator: "/", omittingEmptySubsequences: true)
         guard components.count >= 2, components[0] == "Volumes" else { return nil }
         return "/Volumes/\(components[1])"
+    }
+
+    /// Launch-agent directories are user-writable. Read through a no-follow,
+    /// nonblocking descriptor so a symlink or FIFO named `*.plist` cannot turn
+    /// inventory and uninstall planning into an unbounded read.
+    private static func readPlist(at url: URL) -> Data? {
+        let descriptor = open(url.path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW | O_NONBLOCK)
+        guard descriptor >= 0 else { return nil }
+        defer { close(descriptor) }
+
+        var status = stat()
+        guard fstat(descriptor, &status) == 0,
+            status.st_mode & mode_t(S_IFMT) == mode_t(S_IFREG),
+            status.st_size >= 0,
+            status.st_size <= maximumPlistBytes
+        else { return nil }
+
+        var data = Data()
+        data.reserveCapacity(Int(status.st_size))
+        var buffer = [UInt8](repeating: 0, count: 16_384)
+        while data.count <= maximumPlistBytes {
+            let count = buffer.withUnsafeMutableBytes {
+                Darwin.read(descriptor, $0.baseAddress, $0.count)
+            }
+            if count > 0 {
+                data.append(buffer, count: count)
+                continue
+            }
+            if count == 0 { return data }
+            if errno != EINTR { return nil }
+        }
+        return nil
     }
 }

@@ -16,11 +16,11 @@ are narrower or more reviewable; silent safety regressions are not.
 | Path boundary | One fail-closed `PathGuard` gates every ordinary removal and rechecks at disposal time. Canonical Data-volume aliases, sacred roots, endpoint security paths, mount descendants and target identity changes are refused. |
 | Trash fallback | A failed Trash move never falls through to permanent deletion. Empty Trash delegates to Finder so per-volume Trash is included. |
 | Review | ApexClean is stronger: findings and uninstall leftovers expose per-item paths, sizes, evidence, confidence and recovery state before action. |
-| Running apps | ApexClean blocks relevant cache removal rather than quitting apps. Xcode CLI/Simulator processes are checked at the final removal boundary. |
-| Duplicate storage | Cleanup and Space Lens deduplicate hard-linked inodes, and the catalog has no static parent/child rule collisions. |
-| Filesystem traversal | Recursive scans avoid child symlinks, foreign volumes, privacy-gated roots and provider-managed containers before reading them. |
-| Timeout behavior | Shell commands are bounded with TERM/KILL escalation; cleanup and directory-listing abandoned workers have circuit-breaker limits. |
-| Operation history | Each feature commits its own entries into one atomic store, preventing concurrent sessions from stealing records. Corrupt history is preserved rather than overwritten. |
+| Running apps | ApexClean blocks relevant cache removal rather than quitting apps. Xcode CLI/Simulator processes and uninstall targets are checked again at the final action boundary. |
+| Duplicate storage | Recursive cleanup measurements and Space Lens deduplicate hard-linked inodes, and the catalog has no static parent/child rule collisions. |
+| Filesystem traversal | Recursive scans avoid child symlinks, foreign volumes, privacy-gated roots and provider-managed containers. Launch plists are read through bounded, no-follow regular-file descriptors. |
+| Timeout behavior | Shell commands run in dedicated process groups with PID-identity validation and TERM/KILL escalation; cleanup and directory-listing abandoned workers have circuit-breaker limits. |
+| Operation history | Each feature commits its own entries under a cross-instance file lock into one atomic, bounded store with lifetime totals. Corrupt and future-version history is preserved rather than overwritten. |
 | Homebrew apps | Generic removal is refused for Homebrew-managed apps, because cask hooks and staged payloads are outside the reviewed file list. |
 | Protected vendors | Endpoint/security products are directed to their official uninstallers instead of receiving a generic partial uninstall. |
 
@@ -62,7 +62,7 @@ ApexClean keeps its evidence-led review but adopts Mole's conservative gates:
 - app-controlled display names cannot contain path components and name-only
   matches are never preselected;
 - bundle identifiers use strict reverse-DNS component grammar;
-- live same-ID siblings are counted before preview and again before execution;
+- live related-identifier siblings are counted before preview and again before execution;
 - application identity and running state are rechecked immediately before work;
 - user launch jobs must successfully boot out before their plists move;
 - administrator paths are shown only when they exist and are identifier-bound;
@@ -111,6 +111,6 @@ The repository now enforces:
 - normal, release, AddressSanitizer and ThreadSanitizer test lanes;
 - catalog uniqueness and documented rule count;
 - malicious app-name, reverse-DNS, APFS alias, Trash-boundary, target-swap,
-  startup-volume, hardlink, operation-log corruption/concurrency, power-source
-  and extreme-treemap regression tests;
+  startup-volume/special-file, subprocess-descendant, hardlink, operation-log
+  corruption/concurrency, power-source and extreme-treemap regression tests;
 - signed bundle and universal `arm64`/`x86_64` artifact verification.

@@ -1,3 +1,4 @@
+import Darwin
 import XCTest
 
 @testable import ApexCore
@@ -93,6 +94,12 @@ final class ShellDetailedTests: XCTestCase {
         let result = Shell.runDetailed("/bin/sh", ["-c", "exit 3"])
         XCTAssertFalse(result.succeeded)
         XCTAssertEqual(result.status, 3)
+    }
+
+    func testReportsTheTerminatingSignal() {
+        let result = Shell.runDetailed("/bin/sh", ["-c", "kill -TERM $$"])
+        XCTAssertFalse(result.succeeded)
+        XCTAssertEqual(result.status, SIGTERM)
     }
 
     /// Tools write their real complaint to stderr; discarding it leaves the user

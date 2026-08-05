@@ -60,6 +60,9 @@ struct CleanupView: View {
     private var content: some View {
         ScrollView {
             VStack(spacing: 12) {
+                if !model.report.stalledRules.isEmpty {
+                    incompleteScanNotice
+                }
                 categoryFilter
                 ForEach(model.report.groups) { group in
                     DetailedGroupCard(group: group, model: model)
@@ -69,6 +72,31 @@ struct CleanupView: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.automatic)
+    }
+
+    private var incompleteScanNotice: some View {
+        ApexCard(padding: 15, accent: Palette.caution) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.caution)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Scan incomplete")
+                        .font(Typo.cardTitle)
+                        .foregroundStyle(Palette.ink(scheme))
+                    Text(
+                        "Some locations stopped responding and were skipped: "
+                            + model.report.stalledRules.prefix(4).joined(separator: ", ")
+                            + (model.report.stalledRules.count > 4 ? "…" : "")
+                            + ". The findings below are still safe to review, but they are not a complete result."
+                    )
+                    .font(Typo.secondary)
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private var categoryFilter: some View {
@@ -116,13 +144,11 @@ struct CleanupView: View {
             Image(systemName: "checklist")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(Palette.info)
-            Text(model.stage == .finished ? "Nothing to clean" : "Nothing scanned yet")
+            Text(emptyTitle)
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
             Text(
-                model.stage == .finished
-                    ? "The scan finished without finding any selected cleanup targets."
-                    : "ApexClean never inspects your Mac in the background.\nRun a scan when you want to see what can be reclaimed."
+                emptyMessage
             )
             .font(Typo.body)
             .foregroundStyle(Palette.inkTertiary(scheme))
@@ -136,6 +162,21 @@ struct CleanupView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyTitle: String {
+        if !model.report.stalledRules.isEmpty { return "Scan incomplete" }
+        return model.stage == .finished ? "Nothing to clean" : "Nothing scanned yet"
+    }
+
+    private var emptyMessage: String {
+        if !model.report.stalledRules.isEmpty {
+            return
+                "Some locations stopped responding, so this is not a complete result. Review the skipped locations and scan again."
+        }
+        return model.stage == .finished
+            ? "The scan finished without finding any selected cleanup targets."
+            : "ApexClean never inspects your Mac in the background.\nRun a scan when you want to see what can be reclaimed."
     }
 
     private var actionBar: some View {

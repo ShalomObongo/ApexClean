@@ -52,7 +52,16 @@ enum Settings {
     static var setupSignatureChanged: Bool {
         guard hasCompletedSetup else { return false }
         guard let recorded = defaults.string(forKey: Key.setupSignature) else { return false }
-        return recorded != currentSignature
+        let current = currentSignature
+        if recorded == current { return false }
+        // Releases before 1.5 stored "version+build". A stable Team-ID
+        // signature survives updates in TCC, so migrate without forcing a
+        // permission walkthrough merely because the storage format improved.
+        if recorded.contains("+"), current.contains("|team:") {
+            defaults.set(current, forKey: Key.setupSignature)
+            return false
+        }
+        return true
     }
 
     /// How far the user got in setup.
@@ -105,14 +114,18 @@ enum Settings {
     }
 
     static func prepareForChangedSignature() {
+        defaults.set(false, forKey: Key.completedSetup)
+        defaults.set(currentSignature, forKey: Key.setupSignature)
         defaults.removeObject(forKey: Key.setupStep)
         defaults.removeObject(forKey: Key.askedPermissions)
     }
 
     /// Identifies this specific build to macOS's privacy database.
     ///
-    /// The bundle version stands in for the code signature: both change exactly
-    /// when a rebuild produces a binary TCC considers new.
+    /// A stable Team ID survives ordinary updates; an ad-hoc code-directory
+    /// hash changes with the binary, matching the identity TCC actually sees.
+    /// Version/build is retained only as a fallback if Security cannot inspect
+    /// the running code.
     private static var currentSignature: String {
         if let signingIdentity { return signingIdentity }
         let info = Bundle.main.infoDictionary

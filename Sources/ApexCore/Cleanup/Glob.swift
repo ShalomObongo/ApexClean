@@ -16,6 +16,7 @@ public enum Glob {
         let components = expanded.split(separator: "/", omittingEmptySubsequences: true)
             .map(String.init)
         var candidates = [URL(fileURLWithPath: "/", isDirectory: true)]
+        let fence = Traversal.VolumeFence(root: URL(fileURLWithPath: "/"))
 
         for (index, component) in components.enumerated() {
             let isFinal = index == components.count - 1
@@ -39,14 +40,16 @@ public enum Glob {
                         let name = child.lastPathComponent
                         if name.hasPrefix("."), !component.hasPrefix(".") { continue }
                         guard fnmatch(component, name, 0) == 0 else { continue }
-                        guard isFinal || mayDescend(into: child) else { continue }
+                        guard isFinal || (fence.admits(child) && mayDescend(into: child))
+                        else { continue }
                         next.append(child)
                         if next.count >= limit { break }
                     }
                 } else {
                     let child = parent.appendingPathComponent(component)
                     guard FileManager.default.fileExists(atPath: child.path) else { continue }
-                    guard isFinal || mayDescend(into: child) else { continue }
+                    guard isFinal || (fence.admits(child) && mayDescend(into: child))
+                    else { continue }
                     next.append(child)
                 }
                 if next.count >= limit { break }

@@ -157,10 +157,11 @@ final class ApplicationsModel: ObservableObject {
         queue.async {
             let plan = LeftoverFinder.plan(for: app)
             let identifier = app.bundleID.lowercased()
-            let liveSiblings =
-                AppInventory.scan(running: running)
-                .filter { $0.bundleID.lowercased() == identifier }
-                .count
+            let installed = AppInventory.scan(running: running)
+            let liveSiblings = installed.filter {
+                $0.id != app.id
+                    && LeftoverFinder.identifiersOverlap($0.bundleID, identifier)
+            }.count
             DispatchQueue.main.async {
                 model.plan = plan
                 // Preselect only matches strong enough to justify deleting
@@ -177,7 +178,7 @@ final class ApplicationsModel: ObservableObject {
                 // would have auto-ticked the preferences, containers and group
                 // containers that the surviving copy is still using — signing
                 // the user out and wiping its configuration.
-                let sharedIdentifier = identifier.isEmpty || liveSiblings != 1
+                let sharedIdentifier = identifier.isEmpty || liveSiblings > 0
                 model.planSelection = Set(
                     plan.leftovers
                         .filter { leftover in
@@ -258,17 +259,46 @@ final class ApplicationsModel: ObservableObject {
         }
 
         queue.async {
-            let liveSiblings =
-                AppInventory.scan(running: running)
-                .filter { $0.bundleID.lowercased() == identifier }
-                .count
-            guard !selectedIdentifierLeftovers || (!identifier.isEmpty && liveSiblings == 1) else {
+            let installed = AppInventory.scan(running: running)
+            guard
+                let liveApp = installed.first(where: {
+                    $0.url.standardizedFileURL.resolvingSymlinksInPath()
+                        == plan.bundle.standardizedFileURL.resolvingSymlinksInPath()
+                })
+            else {
+                var refused = Remover.Outcome()
+                refused.refused.append((plan.bundle, "The reviewed application is no longer installed"))
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
+            }
+            let relatedSiblings = installed.filter {
+                $0.id != liveApp.id
+                    && LeftoverFinder.identifiersOverlap($0.bundleID, identifier)
+            }
+            guard !selectedIdentifierLeftovers || (!identifier.isEmpty && relatedSiblings.isEmpty) else {
                 var refused = Remover.Outcome()
                 refused.refused.append(
                     (
                         plan.bundle,
                         "Another installed application shares this bundle identifier"
                     )
+                )
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
+            }
+            let currentVerdict = LeftoverFinder.uninstallVerdict(for: liveApp)
+            guard currentVerdict.isAllowed else {
+                var refused = Remover.Outcome()
+                refused.refused.append(
+                    (plan.bundle, currentVerdict.reason ?? "The uninstall policy changed after review")
                 )
                 let refusedOutcome = refused
                 DispatchQueue.main.async {
@@ -287,6 +317,17 @@ final class ApplicationsModel: ObservableObject {
                 }
                 return
             }
+            let runningBeforeUnload = DispatchQueue.main.sync { RunningApps.snapshot() }
+            guard !runningBeforeUnload.contains(identifier) else {
+                var refused = Remover.Outcome()
+                refused.refused.append((plan.bundle, "\(plan.app.name) started running after review"))
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
+            }
             let remover = Remover()
             var safeURLs = removalURLs
             var preloadRefusals: [(url: URL, reason: String)] = []
@@ -295,6 +336,18 @@ final class ApplicationsModel: ObservableObject {
                 preloadRefusals.append(
                     (url, "The launch job could not be unloaded, so its plist was left in place")
                 )
+            }
+            let runningBeforeRemoval = DispatchQueue.main.sync { RunningApps.snapshot() }
+            guard !runningBeforeRemoval.contains(identifier) else {
+                var refused = Remover.Outcome()
+                refused.refused.append((plan.bundle, "\(plan.app.name) started running after review"))
+                refused.refused += preloadRefusals
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
             }
             var outcome = remover.remove(
                 safeURLs,

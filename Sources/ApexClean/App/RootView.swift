@@ -200,7 +200,16 @@ private struct SidebarRow: View {
         .animation(Motion.respectingReduceMotion(Motion.tactile, reduceMotion), value: hovering)
         .onHover { hovering = $0 }
         .help(destination.subtitle)
-        .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        .accessibilityRepresentation {
+            Button(action: action) {
+                Text(verbatim: destination.title)
+            }
+            .accessibilityValue(
+                "\(destination.title), \(isSelected ? "selected" : "not selected")"
+            )
+            .accessibilityHint("Opens \(destination.title). \(destination.subtitle)")
+            .accessibilityAddTraits(isSelected ? [.isSelected] : [])
+        }
     }
 
     private var indexLabel: String {
@@ -311,7 +320,15 @@ private struct SidebarHealthFooter: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .accessibilityElement(children: .combine)
-        .accessibilityHint("Opens the Vitals screen")
+        .accessibilityRepresentation {
+            Button(action: onTap) {
+                Text("System health")
+            }
+            .accessibilityValue(
+                "\(health.value) out of 100, \(health.band.rawValue), "
+                    + "\(Bytes.format(storage.free)) free of \(Bytes.format(storage.total))"
+            )
+            .accessibilityHint("Opens the Vitals screen")
+        }
     }
 }
