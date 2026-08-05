@@ -1,14 +1,19 @@
+import Darwin
 import Foundation
 
 /// Performs removals. Prefers the Trash so every action stays recoverable, and
 /// re-validates through `PathGuard` at the final boundary rather than trusting a
 /// decision made earlier during the scan.
 public final class Remover {
-    public struct Outcome {
+    public struct Outcome: @unchecked Sendable {
         public var removed: [URL] = []
         public var refused: [(url: URL, reason: String)] = []
         public var failed: [(url: URL, error: String)] = []
-        public var bytesReclaimed: Int64 = 0
+        /// Bytes moved or deleted by this operation.
+        public var bytesProcessed: Int64 = 0
+        /// Bytes actually released from the filesystem. Moving to Trash does
+        /// not contribute until the Trash is emptied.
+        public var bytesFreed: Int64 = 0
         public var filesRemoved: Int = 0
         public var trashed: Int = 0
         /// Where trashed items ended up.
@@ -17,8 +22,12 @@ public final class Remover {
         /// items without charging for them a second time: moving a file to the
         /// Trash and then emptying it frees the space once, not twice.
         public var trashedLocations: [URL] = []
+        public var historyEntries: [OperationLog.Entry] = []
+        public var usedFinder = false
 
         public var isEmpty: Bool { removed.isEmpty && refused.isEmpty && failed.isEmpty }
+
+        public init() {}
     }
 
     public enum Disposal {
@@ -29,10 +38,14 @@ public final class Remover {
         case delete
     }
 
-    private let history: OperationLog?
+    private let beforeDispose: ((URL) -> Void)?
 
-    public init(history: OperationLog? = nil) {
-        self.history = history
+    public convenience init() {
+        self.init(beforeDispose: nil)
+    }
+
+    init(beforeDispose: ((URL) -> Void)?) {
+        self.beforeDispose = beforeDispose
     }
 
     @discardableResult
@@ -58,12 +71,35 @@ public final class Remover {
             }
 
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
+            if let reason = Self.partialDownloadRefusal(for: url) {
+                outcome.refused.append((url, reason))
+                continue
+            }
+            if let reason = Self.developerToolsRefusal(for: url) {
+                outcome.refused.append((url, reason))
+                continue
+            }
+            guard let approvedIdentity = FileIdentity(url) else {
+                outcome.refused.append((url, "Could not verify the filesystem identity"))
+                continue
+            }
 
             let measurement: FileSize.Measurement
             if let known = knownSizes[url] {
                 measurement = FileSize.Measurement(bytes: known, fileCount: 1)
             } else {
                 measurement = FileSize.measure(url)
+            }
+
+            beforeDispose?(url)
+            let finalVerdict = PathGuard.evaluate(url, allowUserRoots: allowUserRoots)
+            guard finalVerdict.isAllowed else {
+                outcome.refused.append((url, finalVerdict.reason ?? "Final safety check failed"))
+                continue
+            }
+            guard FileIdentity(url) == approvedIdentity else {
+                outcome.refused.append((url, "The item changed after it was reviewed"))
+                continue
             }
 
             do {
@@ -78,9 +114,12 @@ public final class Remover {
                     usedTrash = false
                 }
                 outcome.removed.append(url)
-                outcome.bytesReclaimed += measurement.bytes
+                outcome.bytesProcessed += measurement.bytes
+                if !usedTrash {
+                    outcome.bytesFreed += measurement.bytes
+                }
                 outcome.filesRemoved += max(1, measurement.fileCount)
-                history?.record(
+                outcome.historyEntries.append(
                     .init(
                         path: url.path,
                         bytes: measurement.bytes,
@@ -124,7 +163,7 @@ public final class Remover {
     /// escalated to `rm` (`lib/core/file_ops.sh:839-859`).
     private func dispose(_ url: URL, disposal: Disposal) throws -> Disposed {
         // Items already in the Trash cannot be trashed again.
-        let inTrash = url.path.hasPrefix(PathGuard.home.appendingPathComponent(".Trash").path)
+        let inTrash = Self.isInsideUserTrash(url)
 
         if disposal == .trash, !inTrash {
             var resulting: NSURL?
@@ -134,6 +173,81 @@ public final class Remover {
 
         try FileManager.default.removeItem(at: url)
         return .deleted
+    }
+
+    static func isInsideUserTrash(_ url: URL) -> Bool {
+        let trashPath = PathGuard.home.appendingPathComponent(".Trash").standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        return path == trashPath || path.hasPrefix(trashPath + "/")
+    }
+
+    static func isPartialDownload(_ url: URL) -> Bool {
+        ["download", "crdownload", "part"].contains(url.pathExtension.lowercased())
+    }
+
+    private static func partialDownloadRefusal(for url: URL) -> String? {
+        guard isPartialDownload(url) else { return nil }
+        let lsof = "/usr/sbin/lsof"
+        guard Shell.exists(lsof) else {
+            return "Could not verify whether this partial download is still active"
+        }
+
+        let result = Shell.runDetailed(lsof, ["-F", "n", "--", url.path], timeout: 4)
+        if result.timedOut || result.status < 0 {
+            return "Could not verify whether this partial download is still active"
+        }
+        return result.status == 0 ? "This partial download is still open in another process" : nil
+    }
+
+    static func requiresDeveloperToolsIdle(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        let roots = [
+            PathGuard.home.appendingPathComponent("Library/Developer/Xcode").path,
+            PathGuard.home.appendingPathComponent("Library/Developer/CoreSimulator").path,
+        ]
+        return roots.contains { path == $0 || path.hasPrefix($0 + "/") }
+    }
+
+    static func developerToolsRefusal(
+        for url: URL,
+        runningExecutables: Set<String>? = nil
+    ) -> String? {
+        guard requiresDeveloperToolsIdle(url) else { return nil }
+        let active: Set<String>
+        if let runningExecutables {
+            active = Set(runningExecutables.map { $0.lowercased() })
+        } else {
+            guard let output = Shell.run("/bin/ps", ["-axo", "comm="], timeout: 4) else {
+                return "Could not verify whether developer tools are active"
+            }
+            active = Set(
+                output.split(separator: "\n").map {
+                    URL(fileURLWithPath: String($0).trimmingCharacters(in: .whitespaces))
+                        .lastPathComponent
+                        .lowercased()
+                }
+            )
+        }
+        let guarded = [
+            "xcode", "xcodebuild", "xctest", "xctrunner", "swift-frontend",
+            "simulator", "coresimulatorservice", "ibtoold",
+        ]
+        guard let process = guarded.first(where: active.contains) else { return nil }
+        return "\(process) is active; developer build and simulator data was left untouched"
+    }
+
+    private struct FileIdentity: Equatable {
+        let device: dev_t
+        let inode: ino_t
+        let mode: mode_t
+
+        init?(_ url: URL) {
+            var status = stat()
+            guard lstat(url.path, &status) == 0 else { return nil }
+            device = status.st_dev
+            inode = status.st_ino
+            mode = status.st_mode & mode_t(S_IFMT)
+        }
     }
 
     /// Empties the user Trash. Separated from `remove` because the Trash is the
@@ -158,8 +272,9 @@ public final class Remover {
         // assumption behind that — it is a real directory in this home folder,
         // not a link pointing somewhere else — is checked rather than assumed.
         // Mole refuses the same case (`lib/core/file_ops.sh:1055-1057`).
-        guard let attributes = try? FileManager.default.attributesOfItem(atPath: trash.path),
-            attributes[.type] as? FileAttributeType == .typeDirectory
+        guard let values = try? trash.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey]),
+            values.isDirectory == true,
+            values.isSymbolicLink != true
         else {
             var refused = Outcome()
             refused.refused.append((trash, "The Trash is not a regular directory"))
@@ -172,39 +287,34 @@ public final class Remover {
                 includingPropertiesForKeys: nil,
                 options: []
             )
-        else {
-            return Self.emptyTrashViaFinder()
-        }
+        else { return Self.emptyTrashViaFinder() }
 
         let counted = Set(alreadyCounted.map { $0.standardizedFileURL.path })
-        var outcome = Outcome()
-        for (index, url) in contents.enumerated() {
-            defer { progress?(index + 1, contents.count) }
-            let isDoubleCount = counted.contains(url.standardizedFileURL.path)
-            let measurement =
-                isDoubleCount
-                ? FileSize.Measurement(bytes: 0, fileCount: 0)
-                : FileSize.measure(url)
-            do {
-                try FileManager.default.removeItem(at: url)
-                outcome.removed.append(url)
-                outcome.bytesReclaimed += measurement.bytes
-                outcome.filesRemoved += measurement.fileCount
-                if isDoubleCount { continue }
-                // Recorded like any other removal. History is where people go to
-                // find out what happened, and an unlogged deletion is the one
-                // kind this app should never perform.
-                history?.record(
-                    .init(
-                        path: url.path,
-                        bytes: measurement.bytes,
-                        recoverable: false,
-                        date: Date()
-                    )
+        let measured = contents.map { url in
+            (
+                url: url,
+                measurement: FileSize.measure(url),
+                alreadyCounted: counted.contains(url.standardizedFileURL.path)
+            )
+        }
+        var outcome = Self.emptyTrashViaFinder()
+        guard outcome.failed.isEmpty else { return outcome }
+
+        for (index, item) in measured.enumerated() {
+            defer { progress?(index + 1, measured.count) }
+            outcome.removed.append(item.url)
+            outcome.bytesFreed += item.measurement.bytes
+            outcome.filesRemoved += item.measurement.fileCount
+            guard !item.alreadyCounted else { continue }
+            outcome.bytesProcessed += item.measurement.bytes
+            outcome.historyEntries.append(
+                .init(
+                    path: item.url.path,
+                    bytes: item.measurement.bytes,
+                    recoverable: false,
+                    date: Date()
                 )
-            } catch {
-                outcome.failed.append((url, error.localizedDescription))
-            }
+            )
         }
         return outcome
     }
@@ -217,6 +327,7 @@ public final class Remover {
     /// outcome reports success without claiming a figure it cannot support.
     private static func emptyTrashViaFinder() -> Outcome {
         var outcome = Outcome()
+        outcome.usedFinder = true
         let result = Shell.runDetailed(
             "/usr/bin/osascript",
             ["-e", "tell application \"Finder\" to empty the trash"],
@@ -233,7 +344,7 @@ public final class Remover {
     }
 
     /// What ApexClean can currently say about the Trash.
-    public enum TrashState: Equatable {
+    public enum TrashState: Equatable, Sendable {
         case empty
         case holding(bytes: Int64, items: Int)
         /// macOS refuses to list `~/.Trash` without Full Disk Access, and it

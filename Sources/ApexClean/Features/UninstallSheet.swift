@@ -30,6 +30,7 @@ struct UninstallSheet: View {
         }
         .frame(width: 620, height: 620)
         .background(Palette.canvas(scheme))
+        .interactiveDismissDisabled(model.isUninstalling)
     }
 
     private var header: some View {
@@ -66,6 +67,15 @@ struct UninstallSheet: View {
     private func body(for plan: UninstallPlan) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                if case let .refused(reason) = plan.uninstallVerdict {
+                    warning(
+                        symbol: "hand.raised.fill",
+                        tint: Palette.caution,
+                        title: "ApexClean will not remove this app",
+                        detail: reason
+                    )
+                }
+
                 if plan.app.isRunning {
                     warning(
                         symbol: "exclamationmark.triangle.fill",
@@ -100,12 +110,11 @@ struct UninstallSheet: View {
                     warning(
                         symbol: "exclamationmark.shield",
                         tint: Palette.caution,
-                        title: "\(Count.files(plan.requiresAdmin.count)) need an administrator",
-                        detail: "These belong to \(plan.app.name) but sit in system directories "
-                            + "ApexClean will not modify — usually a launch daemon or a "
-                            + "privileged helper that keeps running after the app is gone. "
-                            + "Remove them in Terminal with sudo:\n"
-                            + plan.requiresAdmin.map { "  sudo rm -rf \"\($0.url.path)\"" }
+                        title: "\(Count.files(plan.requiresAdmin.count)) require separate review",
+                        detail: "These identifier-bound files sit outside ApexClean's writable "
+                            + "roots. Use the vendor's official uninstaller or inspect them "
+                            + "manually; ApexClean will not generate a bypass command.\n"
+                            + plan.requiresAdmin.map { "  \(Glob.display($0.url.path))" }
                             .joined(separator: "\n")
                     )
                 }
@@ -184,7 +193,8 @@ struct UninstallSheet: View {
                         if on { model.planSelection.insert(id) } else { model.planSelection.remove(id) }
                     }
                 ),
-                tint: tint
+                tint: tint,
+                label: title
             )
 
             Image(systemName: symbol)
@@ -255,23 +265,28 @@ struct UninstallSheet: View {
     }
 
     private func result(_ outcome: Remover.Outcome) -> some View {
-        VStack(spacing: 16) {
+        let complete =
+            !outcome.removed.isEmpty
+            && outcome.failed.isEmpty
+            && outcome.refused.isEmpty
+        let partial = !outcome.removed.isEmpty && !complete
+
+        return VStack(spacing: 16) {
             Spacer()
             ZStack {
-                Circle().fill(Palette.jade.opacity(0.13)).frame(width: 70, height: 70)
-                Image(systemName: "checkmark")
+                Circle()
+                    .fill((complete ? Palette.jade : Palette.caution).opacity(0.13))
+                    .frame(width: 70, height: 70)
+                Image(systemName: complete ? "checkmark" : "exclamationmark")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Palette.info)
+                    .foregroundStyle(complete ? Palette.info : Palette.caution)
             }
-            Text("Removed \(Bytes.format(outcome.bytesReclaimed))")
+            Text(resultTitle(outcome, complete: complete, partial: partial))
                 .font(Typo.metric(22, weight: .bold))
                 .foregroundStyle(Palette.ink(scheme))
-            Text(
-                "\(outcome.removed.count) items moved to the Trash"
-                    + (outcome.refused.isEmpty ? "" : " · \(outcome.refused.count) refused by safety checks")
-            )
-            .font(Typo.body)
-            .foregroundStyle(Palette.inkSecondary(scheme))
+            Text(resultDetail(outcome))
+                .font(Typo.body)
+                .foregroundStyle(Palette.inkSecondary(scheme))
             if !outcome.failed.isEmpty {
                 Text("\(outcome.failed.count) could not be removed — they may need administrator access.")
                     .font(Typo.secondary)
@@ -280,6 +295,33 @@ struct UninstallSheet: View {
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func resultTitle(
+        _ outcome: Remover.Outcome,
+        complete: Bool,
+        partial: Bool
+    ) -> String {
+        if !complete {
+            return partial ? "Uninstall only partly completed" : "Nothing was removed"
+        }
+        return outcome.trashed > 0
+            ? "Moved \(Bytes.format(outcome.bytesProcessed)) to Trash"
+            : "Removed \(Bytes.format(outcome.bytesProcessed))"
+    }
+
+    private func resultDetail(_ outcome: Remover.Outcome) -> String {
+        var parts: [String] = []
+        if !outcome.removed.isEmpty {
+            parts.append("\(Count.items(outcome.removed.count)) moved to the Trash")
+        }
+        if !outcome.refused.isEmpty {
+            parts.append("\(outcome.refused.count) refused by safety checks")
+        }
+        if !outcome.failed.isEmpty {
+            parts.append("\(outcome.failed.count) failed")
+        }
+        return parts.isEmpty ? "The reviewed scope was left unchanged" : parts.joined(separator: " · ")
     }
 
     private var footer: some View {
@@ -294,6 +336,7 @@ struct UninstallSheet: View {
                 ApexButton(title: "Cancel", kind: .quiet) {
                     dismiss(); model.dismissPlan()
                 }
+                .disabled(model.isUninstalling)
                 ApexButton(
                     title: "Move to Trash",
                     symbol: "trash",
@@ -302,7 +345,12 @@ struct UninstallSheet: View {
                 ) {
                     model.performUninstall()
                 }
-                .disabled(model.planSelection.isEmpty || model.isUninstalling || plan.app.isRunning)
+                .disabled(
+                    model.planSelection.isEmpty
+                        || model.isUninstalling
+                        || plan.app.isRunning
+                        || !plan.uninstallVerdict.isAllowed
+                )
             } else {
                 ApexButton(title: "Done", kind: .primary) {
                     dismiss(); model.dismissPlan()

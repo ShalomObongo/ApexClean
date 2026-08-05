@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// Something macOS starts on your behalf.
-public struct StartupItem: Identifiable, Hashable {
+public struct StartupItem: Identifiable, Hashable, Sendable {
     public var id: String { url.path }
     public let url: URL
     public let label: String
@@ -15,7 +15,7 @@ public struct StartupItem: Identifiable, Hashable {
     public let isOrphaned: Bool
     public let isApple: Bool
 
-    public enum Scope: String, CaseIterable {
+    public enum Scope: String, CaseIterable, Sendable {
         case userAgent = "Login item"
         case globalAgent = "System agent"
         case daemon = "System daemon"
@@ -85,7 +85,13 @@ public enum StartupInventory {
             // A relative path means launchd resolves it against PATH; we cannot
             // prove absence, so we do not claim it.
             if program.hasPrefix("/") {
-                orphaned = !FileManager.default.fileExists(atPath: program)
+                if let volumeRoot = mountedVolumeRoot(for: program),
+                    !FileManager.default.fileExists(atPath: volumeRoot)
+                {
+                    orphaned = false
+                } else {
+                    orphaned = !FileManager.default.fileExists(atPath: program)
+                }
             }
         }
 
@@ -131,9 +137,29 @@ public enum StartupInventory {
     @discardableResult
     public static func unload(_ item: StartupItem) -> Bool {
         guard item.scope == .userAgent else { return false }
-        guard let launchctl = Shell.which("launchctl") else { return false }
+        let launchctl = "/bin/launchctl"
+        guard Shell.exists(launchctl) else { return false }
         let uid = getuid()
-        _ = Shell.run(launchctl, ["bootout", "gui/\(uid)/\(item.label)"], timeout: 8)
-        return true
+        return Shell.runDetailed(
+            launchctl,
+            ["bootout", "gui/\(uid)/\(item.label)"],
+            timeout: 8
+        ).succeeded
+    }
+
+    public static func unload(plist url: URL) -> Bool {
+        let userRoot = PathGuard.home.appendingPathComponent("Library/LaunchAgents").path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(userRoot + "/"),
+            let item = describe(url, scope: .userAgent),
+            !item.isApple
+        else { return false }
+        return unload(item)
+    }
+
+    private static func mountedVolumeRoot(for path: String) -> String? {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true)
+        guard components.count >= 2, components[0] == "Volumes" else { return nil }
+        return "/Volumes/\(components[1])"
     }
 }

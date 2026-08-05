@@ -16,9 +16,17 @@ public enum Treemap {
 
     public static func layout(_ nodes: [SpaceNode], in bounds: CGRect) -> [Tile] {
         let positive = nodes.filter { $0.bytes > 0 }
-        guard !positive.isEmpty, bounds.width > 1, bounds.height > 1 else { return [] }
+        guard !positive.isEmpty,
+            bounds.width > 0,
+            bounds.height > 0,
+            bounds.width.isFinite,
+            bounds.height.isFinite
+        else { return [] }
 
-        let total = positive.reduce(Int64(0)) { $0 + $1.bytes }
+        let total = positive.reduce(Int64(0)) { partial, node in
+            let (sum, overflow) = partial.addingReportingOverflow(node.bytes)
+            return overflow ? Int64.max : sum
+        }
         guard total > 0 else { return [] }
 
         let area = Double(bounds.width * bounds.height)
@@ -55,7 +63,7 @@ public enum Treemap {
             let (placed, rest) = place(row, rowArea: rowArea, in: container, scale: scale, total: total)
             tiles.append(contentsOf: placed)
             container = rest
-            if container.width <= 1 || container.height <= 1 { break }
+            if container.width <= 0 || container.height <= 0 { break }
         }
 
         return tiles

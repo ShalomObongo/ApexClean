@@ -1,9 +1,9 @@
 import Foundation
 
-/// Append-only record of everything ApexClean removed, so a user can always
-/// answer "what did this app touch, and can I get it back?".
-public final class OperationLog {
-    public struct Entry: Codable, Identifiable, Hashable {
+/// Durable, append-only accountability for every completed operation.
+public final class OperationLog: @unchecked Sendable {
+    public static let didChange = Notification.Name("ApexCleanOperationLogDidChange")
+    public struct Entry: Codable, Identifiable, Hashable, Sendable {
         public var id = UUID()
         public var path: String
         public var bytes: Int64
@@ -18,7 +18,7 @@ public final class OperationLog {
         }
     }
 
-    public struct Session: Codable, Identifiable, Hashable {
+    public struct Session: Codable, Identifiable, Hashable, Sendable {
         public var id = UUID()
         public var title: String
         public var date: Date
@@ -27,96 +27,161 @@ public final class OperationLog {
         public var recoverableCount: Int
     }
 
+    private struct Store: Codable {
+        var version = 1
+        var entries: [Entry] = []
+        var sessions: [Session] = []
+    }
+
+    private enum StoreError: Error {
+        case tooLarge
+        case corrupt
+    }
+
     private let queue = DispatchQueue(label: "fit.apexclean.history")
     private let directory: URL
-    private var pending: [Entry] = []
+    private var cachedStore: Store?
+    private static let maximumStoreBytes: Int64 = 64 * 1024 * 1024
 
-    public init() {
-        directory = PathGuard.home
-            .appendingPathComponent("Library/Application Support/ApexClean", isDirectory: true)
-        // 0700. The history is a list of every path this app has removed —
-        // project directories, filenames, the contents of the user's Trash —
-        // and it was being written 0644 inside a 0755 directory. Containment
-        // rested entirely on `~/Library/Application Support` happening to be
-        // private, which is not something to depend on across a restored home
-        // folder, a shared machine, or any other app holding Full Disk Access.
+    public convenience init() {
+        self.init(
+            directory: PathGuard.home
+                .appendingPathComponent("Library/Application Support/ApexClean", isDirectory: true)
+        )
+    }
+
+    init(directory: URL) {
+        self.directory = directory
         try? FileManager.default.createDirectory(
             at: directory,
             withIntermediateDirectories: true,
             attributes: [.posixPermissions: 0o700]
         )
+        try? FileManager.default.setAttributes(
+            [.posixPermissions: 0o700],
+            ofItemAtPath: directory.path
+        )
+        for name in ["operations.json", "sessions.json", "history-v1.json"] {
+            let path = directory.appendingPathComponent(name).path
+            if FileManager.default.fileExists(atPath: path) {
+                try? FileManager.default.setAttributes(
+                    [.posixPermissions: 0o600],
+                    ofItemAtPath: path
+                )
+            }
+        }
     }
 
-    private var entriesURL: URL { directory.appendingPathComponent("operations.json") }
-    private var sessionsURL: URL { directory.appendingPathComponent("sessions.json") }
+    private var storeURL: URL { directory.appendingPathComponent("history-v1.json") }
+    private var legacyEntriesURL: URL { directory.appendingPathComponent("operations.json") }
+    private var legacySessionsURL: URL { directory.appendingPathComponent("sessions.json") }
 
-    public func record(_ entry: Entry) {
-        queue.sync { pending.append(entry) }
-    }
-
-    /// Seals the pending entries into a named session and persists them.
+    /// Atomically appends one operation's entries and summary. Entries from
+    /// another feature can never be consumed by this session.
     @discardableResult
-    public func commitSession(title: String) -> Session? {
-        queue.sync {
-            guard !pending.isEmpty else { return nil }
-            let entries = pending
-            pending.removeAll()
-
-            let session = Session(
-                title: title,
-                date: Date(),
-                bytes: entries.reduce(0) { $0 + $1.bytes },
-                itemCount: entries.count,
-                recoverableCount: entries.filter(\.recoverable).count
-            )
-
-            var allEntries = loadEntries()
-            allEntries.append(contentsOf: entries)
-            // Keep the log bounded; the tail is what people actually consult.
-            if allEntries.count > 5_000 { allEntries.removeFirst(allEntries.count - 5_000) }
-            persist(allEntries, to: entriesURL)
-
-            var sessions = loadSessions()
-            sessions.append(session)
-            if sessions.count > 200 { sessions.removeFirst(sessions.count - 200) }
-            persist(sessions, to: sessionsURL)
-
-            return session
+    public func commitSession(title: String, entries: [Entry]) -> Session? {
+        guard !entries.isEmpty else { return nil }
+        return queue.sync {
+            do {
+                var store = try loadStore()
+                let session = Session(
+                    title: title,
+                    date: Date(),
+                    bytes: saturatingSum(entries.map(\.bytes)),
+                    itemCount: entries.count,
+                    recoverableCount: entries.filter(\.recoverable).count
+                )
+                store.entries.append(contentsOf: entries)
+                store.sessions.append(session)
+                try persist(store)
+                cachedStore = store
+                NotificationCenter.default.post(name: Self.didChange, object: self)
+                return session
+            } catch {
+                Log.safety.error(
+                    "Could not commit operation history: \(error.localizedDescription, privacy: .public)"
+                )
+                return nil
+            }
         }
     }
 
     public func recentSessions(limit: Int = 25) -> [Session] {
-        queue.sync { Array(loadSessions().suffix(limit).reversed()) }
+        queue.sync {
+            guard let store = try? loadStore() else { return [] }
+            return Array(store.sessions.suffix(max(0, limit)).reversed())
+        }
     }
 
     public func recentEntries(limit: Int = 200) -> [Entry] {
-        queue.sync { Array(loadEntries().suffix(limit).reversed()) }
+        queue.sync {
+            guard let store = try? loadStore() else { return [] }
+            return Array(store.entries.suffix(max(0, limit)).reversed())
+        }
     }
 
-    public func totalReclaimed() -> Int64 {
-        queue.sync { loadSessions().reduce(0) { $0 + $1.bytes } }
+    public func totalProcessed() -> Int64 {
+        queue.sync {
+            guard let store = try? loadStore() else { return 0 }
+            return saturatingSum(store.sessions.map(\.bytes))
+        }
     }
 
-    // MARK: - Persistence
+    private func loadStore() throws -> Store {
+        if let cachedStore { return cachedStore }
+        let loaded: Store
+        if FileManager.default.fileExists(atPath: storeURL.path) {
+            loaded = try decode(Store.self, from: storeURL)
+        } else {
+            loaded = Store(
+                entries: try decodeLegacy([Entry].self, from: legacyEntriesURL),
+                sessions: try decodeLegacy([Session].self, from: legacySessionsURL)
+            )
+        }
+        cachedStore = loaded
+        return loaded
+    }
 
-    private func loadEntries() -> [Entry] { load(entriesURL) }
-    private func loadSessions() -> [Session] { load(sessionsURL) }
+    private func decodeLegacy<Element: Decodable>(
+        _ type: [Element].Type, from url: URL
+    ) throws
+        -> [Element]
+    {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+        return try decode(type, from: url)
+    }
 
-    private func load<T: Decodable>(_ url: URL) -> [T] {
-        guard let data = try? Data(contentsOf: url) else { return [] }
+    private func decode<Value: Decodable>(_ type: Value.Type, from url: URL) throws -> Value {
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        if let size = attributes[.size] as? NSNumber,
+            size.int64Value > Self.maximumStoreBytes
+        {
+            throw StoreError.tooLarge
+        }
+        let data = try Data(contentsOf: url, options: [.mappedIfSafe])
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return (try? decoder.decode([T].self, from: data)) ?? []
+        guard let value = try? decoder.decode(type, from: data) else {
+            throw StoreError.corrupt
+        }
+        return value
     }
 
-    private func persist<T: Encodable>(_ value: [T], to url: URL) {
+    private func persist(_ store: Store) throws {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(value) else { return }
-        try? data.write(to: url, options: .atomic)
-        // `.atomic` replaces the file, so the mode has to be reapplied after
-        // every write rather than set once at creation.
-        try? FileManager.default.setAttributes(
-            [.posixPermissions: 0o600], ofItemAtPath: url.path)
+        let data = try encoder.encode(store)
+        try data.write(to: storeURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: storeURL.path
+        )
+    }
+
+    private func saturatingSum(_ values: [Int64]) -> Int64 {
+        values.reduce(0) { total, value in
+            let (sum, overflow) = total.addingReportingOverflow(value)
+            return overflow ? Int64.max : max(0, sum)
+        }
     }
 }

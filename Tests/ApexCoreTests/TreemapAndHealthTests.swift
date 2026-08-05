@@ -53,6 +53,21 @@ final class TreemapTests: XCTestCase {
         XCTAssertTrue(Treemap.layout([node("z", 0)], in: CGRect(x: 0, y: 0, width: 100, height: 100)).isEmpty)
         XCTAssertTrue(Treemap.layout([node("a", 10)], in: .zero).isEmpty)
     }
+
+    func testExtremelySmallPositiveNodeIsNotDropped() {
+        let nodes = [
+            node("large", 1_000_000),
+            node("small", 1),
+        ]
+        let tiles = Treemap.layout(nodes, in: CGRect(x: 0, y: 0, width: 100, height: 100))
+        XCTAssertEqual(Set(tiles.map(\.node.id)), Set(nodes.map(\.id)))
+        XCTAssertTrue(
+            tiles.allSatisfy {
+                $0.rect.width.isFinite && $0.rect.height.isFinite
+                    && $0.rect.width > 0 && $0.rect.height > 0
+            }
+        )
+    }
 }
 
 final class HealthScoreTests: XCTestCase {

@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-public struct InstalledApp: Identifiable, Hashable {
+public struct InstalledApp: Identifiable, Hashable, Sendable {
     public var id: String { url.path }
     public let url: URL
     public let name: String
@@ -16,7 +16,7 @@ public struct InstalledApp: Identifiable, Hashable {
     /// changes the honest advice about how to update it.
     public let source: Source
 
-    public enum Source: String {
+    public enum Source: String, Sendable {
         case appStore = "App Store"
         case homebrew = "Homebrew"
         case direct = "Downloaded"
@@ -36,12 +36,36 @@ public struct InstalledApp: Identifiable, Hashable {
 /// Enumerates installed applications and the facts needed to reason about them.
 public enum AppInventory {
     private static var searchRoots: [URL] {
-        [
+        var roots = [
             URL(fileURLWithPath: "/Applications"),
             URL(fileURLWithPath: "/Applications/Utilities"),
             PathGuard.home.appendingPathComponent("Applications"),
             URL(fileURLWithPath: "/Applications/Setapp"),
+            PathGuard.home.appendingPathComponent("Applications/Setapp"),
+            URL(fileURLWithPath: "/Library/Input Methods"),
+            PathGuard.home.appendingPathComponent("Library/Input Methods"),
         ]
+        let keys: [URLResourceKey] = [.volumeIsLocalKey, .volumeIsBrowsableKey]
+        if let volumes = FileManager.default.mountedVolumeURLs(
+            includingResourceValuesForKeys: keys,
+            options: [.skipHiddenVolumes]
+        ) {
+            for volume in volumes {
+                guard let values = try? volume.resourceValues(forKeys: Set(keys)),
+                    values.volumeIsLocal == true,
+                    values.volumeIsBrowsable == true,
+                    volume.path != "/"
+                else { continue }
+                roots.append(volume.appendingPathComponent("Applications"))
+                roots.append(volume.appendingPathComponent("Applications/Utilities"))
+            }
+        }
+        return Array(
+            Dictionary(
+                grouping: roots.map(\.standardizedFileURL),
+                by: \.path
+            ).compactMap { $0.value.first }
+        )
     }
 
     /// Enumerates installed apps *without* measuring them.
@@ -67,13 +91,14 @@ public enum AppInventory {
         var apps: [InstalledApp] = []
 
         for root in searchRoots {
-            guard
-                let contents = try? FileManager.default.contentsOfDirectory(
+            let contents = Guarded.run(budget: 4) {
+                try? FileManager.default.contentsOfDirectory(
                     at: root,
                     includingPropertiesForKeys: [.contentModificationDateKey, .addedToDirectoryDateKey],
                     options: [.skipsHiddenFiles]
                 )
-            else { continue }
+            }
+            guard let contents = (contents ?? nil) else { continue }
 
             for url in contents where url.pathExtension == "app" {
                 guard !seen.contains(url.path) else { continue }
@@ -96,14 +121,12 @@ public enum AppInventory {
     public static func measured(_ apps: [InstalledApp]) -> [InstalledApp] {
         guard !apps.isEmpty else { return [] }
 
-        var sizes = [Int64](repeating: 0, count: apps.count)
-        sizes.withUnsafeMutableBufferPointer { buffer in
-            DispatchQueue.concurrentPerform(iterations: apps.count) { index in
-                buffer[index] = FileSize.measure(apps[index].url).bytes
-            }
+        let sizes = SizeBuffer(count: apps.count)
+        DispatchQueue.concurrentPerform(iterations: apps.count) { index in
+            sizes.set(FileSize.measure(apps[index].url).bytes, at: index)
         }
 
-        return zip(apps, sizes).map { app, bytes in
+        return zip(apps, sizes.values()).map { app, bytes in
             var copy = app
             copy.bundleBytes = bytes
             return copy
@@ -139,9 +162,7 @@ public enum AppInventory {
         let hasReceipt = FileManager.default.fileExists(
             atPath: url.appendingPathComponent("Contents/_MASReceipt/receipt").path
         )
-        let token = url.deletingPathExtension().lastPathComponent.lowercased().replacingOccurrences(
-            of: " ", with: "-")
-        let isSystem = url.path.hasPrefix("/System/") || bundleID.hasPrefix("com.apple.")
+        let isSystem = url.path.hasPrefix("/System/")
 
         let source: InstalledApp.Source
         if isSystem {
@@ -166,6 +187,27 @@ public enum AppInventory {
             isSystem: isSystem,
             source: source
         )
+    }
+
+    private final class SizeBuffer: @unchecked Sendable {
+        private let lock = NSLock()
+        private var storage: [Int64]
+
+        init(count: Int) {
+            storage = [Int64](repeating: 0, count: count)
+        }
+
+        func set(_ value: Int64, at index: Int) {
+            lock.lock()
+            storage[index] = value
+            lock.unlock()
+        }
+
+        func values() -> [Int64] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storage
+        }
     }
 }
 
@@ -215,33 +257,6 @@ public enum HomebrewBridge {
         return map
     }
 
-    /// Removes the cask record for an app whose bundle has already been
-    /// removed.
-    ///
-    /// Without this, Homebrew still believes the cask is installed: `brew list
-    /// --cask` reports it, its staged payload stays on disk — 707 MB for
-    /// Anaconda on the machine this was found on — and `brew outdated` keeps
-    /// offering it, so ApexClean's own Updates tab will cheerfully reinstall an
-    /// application the user just uninstalled.
-    ///
-    /// `--force` because the bundle is already gone and Homebrew would
-    /// otherwise refuse. Mole's equivalent is `brew_uninstall_cask()` in
-    /// `lib/uninstall/brew.sh`.
-    @discardableResult
-    public static func forgetCask(_ token: String) -> Bool {
-        guard let brew = brewPath else { return false }
-        let environment = ProcessInfo.processInfo.environment.merging([
-            "HOMEBREW_NO_AUTO_UPDATE": "1",
-            "HOMEBREW_NO_ANALYTICS": "1",
-            "NONINTERACTIVE": "1",
-        ]) { _, new in new }
-        let result = Shell.runDetailed(
-            brew, ["uninstall", "--cask", "--force", token], timeout: 120,
-            environment: environment
-        )
-        return !result.timedOut && result.status == 0
-    }
-
     public static func installedCaskTokens() -> Set<String> {
         guard let brew = brewPath,
             let output = Shell.run(brew, ["list", "--cask", "-1"], timeout: 12)
@@ -249,7 +264,7 @@ public enum HomebrewBridge {
         return Set(output.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) })
     }
 
-    public struct OutdatedCask: Identifiable, Hashable {
+    public struct OutdatedCask: Identifiable, Hashable, Sendable {
         public var id: String { token }
         public let token: String
         public let currentVersion: String
@@ -261,7 +276,7 @@ public enum HomebrewBridge {
     /// An empty list is ambiguous — it means "nothing is outdated" *or* "the
     /// command never finished" — and the two must not look the same to the
     /// user.
-    public struct OutdatedResult {
+    public struct OutdatedResult: Sendable {
         public let casks: [OutdatedCask]
         public let didComplete: Bool
         public var isReliable: Bool { didComplete }
@@ -293,7 +308,7 @@ public enum HomebrewBridge {
             timeout: 90,
             environment: environment
         )
-        guard !result.timedOut, result.status >= 0 else {
+        guard !result.timedOut, result.status == 0 else {
             return OutdatedResult(casks: [], didComplete: false)
         }
         return OutdatedResult(casks: parseOutdatedCasks(result.output), didComplete: true)
@@ -330,7 +345,7 @@ public enum HomebrewBridge {
         upgrade(token).succeeded
     }
 
-    public struct UpgradeOutcome {
+    public struct UpgradeOutcome: Sendable {
         public let succeeded: Bool
         /// Short, human-readable reason. Empty when the upgrade worked.
         public let message: String

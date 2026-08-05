@@ -93,6 +93,13 @@ final class TraversalTests: XCTestCase {
         let fence = Traversal.VolumeFence(root: PathGuard.home)
         XCTAssertFalse(fence.admits(URL(fileURLWithPath: "/nonexistent-\(UUID().uuidString)")))
     }
+
+    func testFenceFailsClosedWhenRootVolumeCannotBeIdentified() {
+        let missingRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let fence = Traversal.VolumeFence(root: missingRoot)
+        XCTAssertFalse(fence.admits(FileManager.default.temporaryDirectory))
+    }
 }
 
 /// Behaviour of the tree walk itself.
@@ -185,8 +192,14 @@ final class SpaceScannerTests: XCTestCase {
         )
     }
 
-    /// Stop must actually stop. `scan` clears the flag on entry, so the only
-    /// honest way to test this is to cancel from inside a running walk.
+    func testCancellationBeforeAQueuedScanStartsIsSticky() throws {
+        try write(64, to: root.appendingPathComponent("folder/file.bin"))
+        let scanner = SpaceScanner()
+        scanner.cancel()
+        XCTAssertNil(scanner.scan(root: root))
+    }
+
+    /// Stop must actually stop after a walk has begun as well.
     func testCancellingDuringAScanStopsTheWalk() throws {
         for index in 0..<140 {
             try write(64, to: root.appendingPathComponent("dir\(index)/file.bin"))

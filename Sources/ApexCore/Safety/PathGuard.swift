@@ -7,7 +7,7 @@ import Foundation
 /// cannot positively vouch for is refused. Adapted from the safety boundaries in
 /// the Mole CLI (GPL-3.0) — see NOTICE.
 public enum PathGuard {
-    public enum Verdict: Equatable {
+    public enum Verdict: Equatable, Sendable {
         case allowed
         case refused(reason: String)
 
@@ -97,6 +97,15 @@ public enum PathGuard {
     private static let loweredPermittedRoots: [String] = permittedRoots.map { $0.lowercased() }
     private static let loweredProtectedFragments: [String] = protectedFragments.map {
         $0.lowercased()
+    }
+    private static let loweredResolvedImmovable = Set(
+        loweredImmovable.flatMap { [$0, dataVolumeAlias(for: $0)] }
+    )
+    private static let loweredResolvedSacredSubtrees = loweredSacredSubtrees.flatMap {
+        [$0, dataVolumeAlias(for: $0)]
+    }
+    private static let loweredResolvedPermittedRoots = loweredPermittedRoots.flatMap {
+        [$0, dataVolumeAlias(for: $0)]
     }
 
     private static func isWithin(_ path: String, anyOf roots: [String]) -> Bool {
@@ -196,22 +205,36 @@ public enum PathGuard {
             return .allowed
         }
 
+        if isUnexpectedMountedDescendant(target, path: path, allowUserRoots: allowUserRoots) {
+            return .refused(reason: "Crosses into a different mounted volume")
+        }
+
         // Re-validate the fully resolved path so a symlinked *parent* cannot be
         // used to smuggle a target out of the permitted roots.
         let resolved = normalize(target.resolvingSymlinksInPath().path)
         if resolved != path {
             let loweredResolved = resolved.lowercased()
-            if loweredImmovable.contains(loweredResolved) {
+            if loweredResolvedImmovable.contains(loweredResolved) {
                 return .refused(reason: "Resolves to a system directory")
             }
-            if !allowUserRoots, isWithin(loweredResolved, anyOf: loweredSacredSubtrees) {
+            let resolvedComponents = loweredResolved.split(separator: "/")
+            if resolvedComponents.count < 3 {
+                return .refused(reason: "Resolves too close to the volume root")
+            }
+            for fragment in loweredProtectedFragments where loweredResolved.contains(fragment) {
+                return .refused(reason: "Resolves to a protected system component")
+            }
+            if isEndpointSecurityPath(loweredResolved) {
+                return .refused(reason: "Resolves into an endpoint-security agent")
+            }
+            if !allowUserRoots, isWithin(loweredResolved, anyOf: loweredResolvedSacredSubtrees) {
                 return .refused(reason: "Resolves into irreplaceable personal data")
             }
-            let resolvedRoots =
-                loweredPermittedRoots
-                + ["/private\(home.path)".lowercased(), "/system/volumes/data"]
-            guard isWithin(loweredResolved, anyOf: resolvedRoots) else {
+            guard isWithin(loweredResolved, anyOf: loweredResolvedPermittedRoots) else {
                 return .refused(reason: "Resolves outside the permitted directories")
+            }
+            if isMountPoint(URL(fileURLWithPath: resolved)) {
+                return .refused(reason: "Resolves to a mounted volume root")
             }
         }
 
@@ -222,9 +245,14 @@ public enum PathGuard {
     /// system-critical bundle identifiers are refused outright.
     public static func canUninstall(bundleID: String, path: URL) -> Verdict {
         let identifier = bundleID.lowercased()
+        for protected in OfficialUninstallerBundles.identifiers
+        where matches(identifier, pattern: protected) {
+            return .refused(reason: "Use this vendor's official uninstaller")
+        }
         for critical in SystemCriticalBundles.identifiers where matches(identifier, pattern: critical) {
             return .refused(reason: "Required by macOS")
         }
+
         let location = path.standardizedFileURL.path
         // Case-folded for the same reason `evaluate` is: on a case-insensitive
         // volume `/system/Applications/Mail.app` is the same file as
@@ -248,6 +276,13 @@ public enum PathGuard {
         var value = path
         while value.count > 1, value.hasSuffix("/") { value.removeLast() }
         return value
+    }
+
+    private static func dataVolumeAlias(for loweredPath: String) -> String {
+        guard loweredPath.hasPrefix("/"),
+            !loweredPath.hasPrefix("/system/volumes/data")
+        else { return loweredPath }
+        return "/system/volumes/data" + loweredPath
     }
 
     /// `/Applications/Thing.app`, and nothing else.
@@ -276,6 +311,31 @@ public enum PathGuard {
         return values.isVolume == true
     }
 
+    private static func isUnexpectedMountedDescendant(
+        _ target: URL,
+        path: String,
+        allowUserRoots: Bool
+    ) -> Bool {
+        let lowered = path.lowercased()
+        if allowUserRoots,
+            (lowered == "/volumes" || lowered.hasPrefix("/volumes/"))
+        {
+            return false
+        }
+        guard
+            let root =
+                permittedRoots
+                .filter({
+                    let candidate = $0.lowercased()
+                    return lowered == candidate || lowered.hasPrefix(candidate + "/")
+                })
+                .max(by: { $0.count < $1.count }),
+            let targetVolume = Traversal.volumeIdentifier(of: target),
+            let rootVolume = Traversal.volumeIdentifier(of: URL(fileURLWithPath: root))
+        else { return false }
+        return !targetVolume.isEqual(rootVolume)
+    }
+
     private static func matches(_ value: String, pattern: String) -> Bool {
         let lowered = pattern.lowercased()
         if lowered.hasSuffix("*") {
@@ -283,6 +343,15 @@ public enum PathGuard {
         }
         return value == lowered
     }
+}
+
+public enum OfficialUninstallerBundles {
+    public static let identifiers: [String] = [
+        "com.crowdstrike.*", "com.sentinelone.*", "com.eset.*", "com.jamf.*",
+        "com.paloaltonetworks.globalprotect*", "com.cisco.*", "com.carbonblack.*",
+        "com.microsoft.wdav*", "com.sophos.*", "com.netskope.*", "com.zscaler.*",
+        "com.trendmicro.*", "com.mcafee.*", "com.symantec.*",
+    ]
 }
 
 /// Bundle identifiers that must survive any uninstall. Apple apps are listed

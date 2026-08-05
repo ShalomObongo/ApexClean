@@ -2,7 +2,7 @@ import Foundation
 import IOKit
 import IOKit.ps
 
-public struct PowerVitals: Equatable {
+public struct PowerVitals: Equatable, Sendable {
     public var hasBattery: Bool = false
     public var percentage: Int = 100
     public var isCharging: Bool = false
@@ -29,7 +29,7 @@ public struct PowerVitals: Equatable {
     }
 }
 
-public struct ThermalVitals: Equatable {
+public struct ThermalVitals: Equatable, Sendable {
     public var state: ProcessInfo.ThermalState = .nominal
     public var label: String {
         switch state {
@@ -65,30 +65,38 @@ public enum PowerSampler {
                     let description = IOPSGetPowerSourceDescription(blob, source)?
                         .takeUnretainedValue() as? [String: Any]
                 else { continue }
-
-                vitals.hasBattery = true
-                if let current = description[kIOPSCurrentCapacityKey] as? Int,
-                    let max = description[kIOPSMaxCapacityKey] as? Int, max > 0
-                {
-                    vitals.percentage = Int((Double(current) / Double(max)) * 100)
-                }
-                vitals.isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
-                if let state = description[kIOPSPowerSourceStateKey] as? String {
-                    vitals.isPluggedIn = state == kIOPSACPowerValue
-                }
-                if let minutes = description[kIOPSTimeToEmptyKey] as? Int, minutes > 0 {
-                    vitals.timeRemainingMinutes = minutes
-                }
-                if vitals.isCharging, let minutes = description[kIOPSTimeToFullChargeKey] as? Int, minutes > 0
-                {
-                    vitals.timeRemainingMinutes = minutes
-                }
+                mergePowerSource(description, into: &vitals)
             }
         }
 
         // AppleSmartBattery carries the durability figures IOPowerSources omits.
         mergeSmartBattery(into: &vitals)
         return vitals
+    }
+
+    static func mergePowerSource(_ description: [String: Any], into vitals: inout PowerVitals) {
+        guard description[kIOPSTypeKey] as? String == kIOPSInternalBatteryType else { return }
+
+        vitals.hasBattery = true
+        if let current = description[kIOPSCurrentCapacityKey] as? Int,
+            let maximum = description[kIOPSMaxCapacityKey] as? Int,
+            maximum > 0
+        {
+            vitals.percentage = max(0, min(100, Int((Double(current) / Double(maximum)) * 100)))
+        }
+        vitals.isCharging = description[kIOPSIsChargingKey] as? Bool ?? false
+        if let state = description[kIOPSPowerSourceStateKey] as? String {
+            vitals.isPluggedIn = state == kIOPSACPowerValue
+        }
+        if let minutes = description[kIOPSTimeToEmptyKey] as? Int, minutes > 0 {
+            vitals.timeRemainingMinutes = minutes
+        }
+        if vitals.isCharging,
+            let minutes = description[kIOPSTimeToFullChargeKey] as? Int,
+            minutes > 0
+        {
+            vitals.timeRemainingMinutes = minutes
+        }
     }
 
     private static func mergeSmartBattery(into vitals: inout PowerVitals) {

@@ -25,7 +25,7 @@ then shows you <b>everything</b> before it touches <b>anything</b>.
 <img src="https://img.shields.io/badge/macOS-14%2B-4F7180?style=flat-square&logo=apple&logoColor=FFFFFF&labelColor=26384A" alt="macOS 14+">
 <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-426E5A?style=flat-square&labelColor=26384A" alt="Universal">
 <img src="https://img.shields.io/badge/Swift-5.9%2B-81501E?style=flat-square&logo=swift&logoColor=FFFFFF&labelColor=26384A" alt="Swift 5.9+">
-<img src="https://img.shields.io/badge/tests-144_passing-426E5A?style=flat-square&labelColor=26384A" alt="144 tests">
+<img src="https://img.shields.io/badge/tests-172_passing-426E5A?style=flat-square&labelColor=26384A" alt="172 tests">
 <img src="https://img.shields.io/badge/telemetry-none-6D5878?style=flat-square&labelColor=26384A" alt="No telemetry">
 <img src="https://img.shields.io/badge/license-GPL--3.0-8F3832?style=flat-square&labelColor=26384A" alt="GPL-3.0">
 </p>
@@ -137,7 +137,7 @@ that macOS keeps the Trash private unless the app has Full Disk Access.
 
 <br>
 
-### 02 / Cleanup — 417 rules, every path inspectable
+### 02 / Cleanup — 406 rules, every path inspectable
 
 <div align="center">
 <img src="docs/images/cleanup.webp" width="100%" alt="Coastal Atlas Cleanup with category filters, expanded evidence and a running selection total">
@@ -152,9 +152,9 @@ rather than whole application-support trees.
 
 | Category | Rules | | Category | Rules |
 |---|---:|:---:|---|---:|
-| Application caches | 154 | | AI tooling | 19 |
+| Application caches | 147 | | AI tooling | 18 |
 | Browser data | 136 | | System junk | 18 |
-| Developer artifacts | 74 | | Logs · installers · leftovers · Trash | 16 |
+| Developer artifacts | 72 | | Logs · installers · leftovers · Trash | 15 |
 
 </div>
 
@@ -441,7 +441,7 @@ Sources/
 ├── ApexCore/                  Engine. Zero UI, fully testable.
 │   ├── Support/               Byte formatting, bounded shell, Guarded, allocated size
 │   ├── Safety/                PathGuard, PrivacyAccess, Remover
-│   ├── Cleanup/               CleanupCatalog (417 rules), CleanupScanner, Glob
+│   ├── Cleanup/               CleanupCatalog (406 rules), CleanupScanner, Glob
 │   ├── Apps/                  AppInventory, LeftoverFinder, StartupInventory
 │   ├── Maintenance/           MaintenanceCatalog + runner
 │   ├── Disk/                  SpaceScanner, LargeFileFinder, Treemap
@@ -511,7 +511,7 @@ the head of a serial queue would otherwise swallow every job behind it.
 swift test
 ```
 
-**144 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
+**172 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
 bounded execution, guarded directory listing, leftover-matching precision, uninstall
 plan invariants, catalog invariants, treemap layout, health scoring and byte formatting.
 
@@ -596,7 +596,8 @@ path-protection boundaries, leftover-matching rules, maintenance task set and he
 scoring were all studied from Mole's source and reimplemented in Swift. Mole did the
 hard, unglamorous work of figuring out what is actually safe to delete on a Mac, and
 this app would not exist without it. [NOTICE](NOTICE) records exactly what was adapted
-and where it now lives.
+and where it now lives. The pinned behavioral comparison is documented in
+[the Mole parity audit](docs/MOLE_PARITY.md).
 
 ApexClean is an independent project. It is not affiliated with or endorsed by Mole, and
 it is unrelated to the separate proprietary *Mole for Mac* application. No Mole source,

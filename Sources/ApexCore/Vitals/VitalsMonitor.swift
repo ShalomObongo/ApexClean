@@ -8,7 +8,7 @@ import Foundation
 /// is observing. Low idle overhead is a product requirement, not a nicety.
 @MainActor
 public final class VitalsMonitor: ObservableObject {
-    public struct Snapshot: Equatable {
+    public struct Snapshot: Equatable, Sendable {
         public var cpu = CPUVitals()
         public var memory = MemoryVitals()
         public var storage = StorageVitals()
@@ -29,11 +29,13 @@ public final class VitalsMonitor: ObservableObject {
 
     public static let historyLength = 60
 
-    private let engine = SamplingEngine()
+    private var engine = SamplingEngine()
     private var timer: Timer?
     private var tick = 0
     private var subscribers = 0
     private var sampleInFlight = false
+    private var sampleGeneration = 0
+    private var abandonedEngines = 0
     private var isOnScreen = true
 
     public init() {
@@ -108,6 +110,9 @@ public final class VitalsMonitor: ObservableObject {
         // is pinned at 100% CPU with no window ever reaching the screen.
         guard !sampleInFlight else { return }
         sampleInFlight = true
+        sampleGeneration &+= 1
+        let generation = sampleGeneration
+        let engine = engine
 
         tick &+= 1
         engine.sample(
@@ -116,12 +121,30 @@ public final class VitalsMonitor: ObservableObject {
             includeProcesses: force || tick % 5 == 1
         ) { [weak self] next in
             guard let self else { return }
+            guard self.sampleGeneration == generation else { return }
             self.sampleInFlight = false
             self.snapshot = next
             self.append(&self.cpuHistory, next.cpu.usage / 100)
             self.append(&self.memoryHistory, next.memory.pressure)
             self.append(&self.downloadHistory, next.network.downloadBytesPerSecond)
             self.append(&self.uploadHistory, next.network.uploadBytesPerSecond)
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            guard let self,
+                self.sampleInFlight,
+                self.sampleGeneration == generation
+            else { return }
+
+            self.sampleInFlight = false
+            self.abandonedEngines += 1
+            self.engine = SamplingEngine()
+            Log.vitals.error("Sampling exceeded its deadline; replaced the sampling engine")
+            if self.abandonedEngines < 3 {
+                self.sample(force: true)
+            } else {
+                self.stop()
+            }
         }
     }
 
@@ -133,7 +156,7 @@ public final class VitalsMonitor: ObservableObject {
 
 /// Owns the stateful samplers and runs every reading on one serial background
 /// queue. Nothing here touches the main thread; results are handed back on it.
-private final class SamplingEngine {
+private final class SamplingEngine: @unchecked Sendable {
     private let queue = DispatchQueue(label: "fit.apexclean.vitals", qos: .utility)
     private let cpuSampler = CPUSampler()
     private let networkSampler = NetworkSampler()
@@ -142,18 +165,26 @@ private final class SamplingEngine {
         previous: VitalsMonitor.Snapshot,
         includeSlowMetrics: Bool,
         includeProcesses: Bool,
-        completion: @escaping (VitalsMonitor.Snapshot) -> Void
+        completion: @escaping @MainActor @Sendable (VitalsMonitor.Snapshot) -> Void
     ) {
         queue.async { [self] in
             var next = previous
-            next.cpu = cpuSampler.sample()
-            next.memory = MemorySampler.sample()
+            let cpu = cpuSampler.sample()
+            if cpu.logicalCores > 0 { next.cpu = cpu }
+
+            let memory = MemorySampler.sample()
+            if memory.total > 0,
+                memory.active + memory.wired + memory.compressed + memory.free > 0
+            {
+                next.memory = memory
+            }
             next.network = networkSampler.sample()
 
             // Storage, power and the process table are comparatively expensive,
             // so they run on a slower cadence than the cheap counters.
             if includeSlowMetrics {
-                next.storage = StorageSampler.sample()
+                let storage = StorageSampler.sample()
+                if storage.total > 0 { next.storage = storage }
                 next.power = PowerSampler.sample()
                 next.thermal = ThermalSampler.sample()
                 next.uptime = HealthEvaluator.uptime()
@@ -172,7 +203,8 @@ private final class SamplingEngine {
                 uptime: next.uptime
             )
 
-            DispatchQueue.main.async { completion(next) }
+            let result = next
+            DispatchQueue.main.async { completion(result) }
         }
     }
 }

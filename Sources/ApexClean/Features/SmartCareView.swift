@@ -32,6 +32,9 @@ struct SmartCareView: View {
                 if !model.blockedFindings.isEmpty, model.stage == .reviewing {
                     blockedNotice
                 }
+                if model.blockedAtCleanTime > 0 {
+                    cleanTimeBlockedNotice
+                }
                 if !model.report.stalledRules.isEmpty {
                     stalledNotice
                 }
@@ -57,10 +60,10 @@ struct SmartCareView: View {
             subtitle:
                 "ApexClean looks first, then shows you everything it found. Nothing is removed until you approve it."
         ) {
-            if state.totalReclaimedEver > 0 {
+            if state.totalHandledEver > 0 {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("Reclaimed to date").eyebrowStyle(scheme)
-                    Text(Bytes.format(state.totalReclaimedEver))
+                    Text("Handled to date").eyebrowStyle(scheme)
+                    Text(Bytes.format(state.totalHandledEver))
                         .font(Typo.metric(19, weight: .bold))
                         .foregroundStyle(Palette.info)
                 }
@@ -342,6 +345,31 @@ struct SmartCareView: View {
                         .foregroundStyle(Palette.inkSecondary(scheme))
                         .fixedSize(horizontal: false, vertical: true)
                 }
+
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var cleanTimeBlockedNotice: some View {
+        ApexCard(padding: 15, accent: Palette.caution) {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: "arrow.clockwise.circle")
+                    .font(.system(size: 14))
+                    .foregroundStyle(Palette.caution)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(
+                        "\(model.blockedAtCleanTime) selected \(model.blockedAtCleanTime == 1 ? "group was" : "groups were") held back"
+                    )
+                    .font(Typo.cardTitle)
+                    .foregroundStyle(Palette.ink(scheme))
+                    Text(
+                        "An owning app started after the scan. Quit it and scan again to review those files safely."
+                    )
+                    .font(Typo.secondary)
+                    .foregroundStyle(Palette.inkSecondary(scheme))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
                 Spacer(minLength: 0)
             }
         }
@@ -370,7 +398,7 @@ struct SmartCareView: View {
                             .foregroundStyle(Palette.info)
                     }
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Reclaimed \(Bytes.format(outcome.bytesReclaimed))")
+                        Text(completionTitle(outcome))
                             .font(Typo.metric(21, weight: .bold))
                             .foregroundStyle(Palette.ink(scheme))
                         Text(completionDetail(outcome))
@@ -415,6 +443,13 @@ struct SmartCareView: View {
             parts.append("\(outcome.refused.count) refused by safety checks")
         }
         return parts.joined(separator: " · ")
+    }
+
+    private func completionTitle(_ outcome: Remover.Outcome) -> String {
+        if outcome.bytesFreed > 0 {
+            return "Freed \(Bytes.format(outcome.bytesFreed))"
+        }
+        return "Moved \(Bytes.format(outcome.bytesProcessed)) to Trash"
     }
 
     private func detailLine(symbol: String, tint: Color, title: String, detail: String) -> some View {
@@ -462,14 +497,14 @@ struct SmartCareView: View {
         let included = model.includesProtectedLocations
         return PrivacyInviteCard(
             title: included
-                ? "Downloads and Desktop are included"
-                : "Downloads and Desktop are not scanned",
+                ? "Personal folders are included"
+                : "Personal folders are not scanned",
             detail: included
-                ? "Scans cover these folders, so installers and forgotten downloads are found. "
+                ? "Scans cover Desktop, Documents and Downloads, so installers and forgotten files are found. "
                     + "Exclude them at any time and ApexClean stops reading them."
-                : "macOS protects these folders, so ApexClean leaves them alone unless you say "
+                : "macOS protects Desktop, Documents and Downloads, so ApexClean leaves them alone unless you say "
                     + "otherwise. Nothing there is read until you include them.",
-            scopes: [.downloads, .desktop],
+            scopes: [.downloads, .desktop, .documents],
             isEnabled: Binding(
                 get: { model.includesProtectedLocations },
                 set: { model.includesProtectedLocations = $0 }
@@ -550,7 +585,8 @@ private struct GroupSummaryRow: View {
                             set: { _ in model.toggle(group: group) }
                         ),
                         tint: tint,
-                        isMixed: state.isMixed
+                        isMixed: state.isMixed,
+                        label: group.category.title
                     )
 
                     GlyphTile(symbol: group.category.symbol, tint: tint, size: 32)
@@ -643,7 +679,8 @@ struct FindingRow: View {
                         get: { model.selection.contains(finding.id) },
                         set: { _ in model.toggle(finding) }
                     ),
-                    tint: tint
+                    tint: tint,
+                    label: finding.title
                 )
                 .disabled(finding.isBlocked)
                 .opacity(finding.isBlocked ? 0.4 : 1)
@@ -686,7 +723,7 @@ struct FindingRow: View {
 
             if showsPaths {
                 VStack(alignment: .leading, spacing: 2) {
-                    ForEach(finding.items.prefix(6)) { item in
+                    ForEach(finding.items) { item in
                         HStack(spacing: 6) {
                             Text(item.displayPath)
                                 .font(.system(size: 10.5, design: .monospaced))
@@ -698,11 +735,6 @@ struct FindingRow: View {
                                 .font(.system(size: 10, design: .monospaced))
                                 .foregroundStyle(Palette.inkTertiary(scheme).opacity(0.7))
                         }
-                    }
-                    if finding.items.count > 6 {
-                        Text("+ \(finding.items.count - 6) more paths")
-                            .font(.system(size: 10))
-                            .foregroundStyle(Palette.inkTertiary(scheme).opacity(0.7))
                     }
                 }
                 .padding(.leading, 26)

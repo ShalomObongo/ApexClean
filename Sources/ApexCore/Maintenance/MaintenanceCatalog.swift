@@ -6,7 +6,7 @@ import Foundation
 /// Every task states plainly what it does and what it does *not* do. Nothing in
 /// this catalog claims to make a Mac "faster"; each one either repairs a
 /// specific broken state or clears a specific stale cache.
-public struct MaintenanceTask: Identifiable, Hashable {
+public struct MaintenanceTask: Identifiable, Hashable, Sendable {
     public let id: String
     public let title: String
     public let summary: String
@@ -20,12 +20,13 @@ public struct MaintenanceTask: Identifiable, Hashable {
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
-public struct MaintenanceResult: Identifiable {
+public struct MaintenanceResult: Identifiable, Sendable {
     public var id: String { task.id }
     public let task: MaintenanceTask
     public let succeeded: Bool
     public let detail: String
     public let bytesFreed: Int64
+    public var historyEntries: [OperationLog.Entry] = []
 }
 
 public enum MaintenanceCatalog {
@@ -126,7 +127,7 @@ public enum MaintenanceCatalog {
 /// Executes maintenance tasks. Anything requiring elevation is attempted without
 /// prompting for a password; if it cannot run unprivileged, it reports that
 /// plainly rather than silently doing nothing.
-public final class MaintenanceRunner {
+public final class MaintenanceRunner: Sendable {
     public init() {}
 
     public func run(_ task: MaintenanceTask) -> MaintenanceResult {
@@ -185,16 +186,26 @@ public final class MaintenanceRunner {
         let remover = Remover()
         let caches = Glob.expand("~/Library/Caches/com.apple.QuickLook.thumbnailcache")
         let outcome = remover.remove(caches, disposal: .delete)
-        freed += outcome.bytesReclaimed
+        freed += outcome.bytesFreed
 
+        var commandSucceeded = true
         if let qlmanage = Shell.which("qlmanage") {
-            _ = Shell.run(qlmanage, ["-r", "cache"], timeout: 20)
+            commandSucceeded =
+                Shell.runDetailed(
+                    qlmanage,
+                    ["-r", "cache"],
+                    timeout: 20
+                ).succeeded
         }
+        let succeeded = outcome.failed.isEmpty && outcome.refused.isEmpty && commandSucceeded
         return .init(
             task: task,
-            succeeded: true,
-            detail: freed > 0 ? "Reclaimed \(Bytes.format(freed))" : "Cache already clean",
-            bytesFreed: freed
+            succeeded: succeeded,
+            detail: succeeded
+                ? (freed > 0 ? "Reclaimed \(Bytes.format(freed))" : "Cache already clean")
+                : "Quick Look cache could not be rebuilt completely",
+            bytesFreed: freed,
+            historyEntries: outcome.historyEntries
         )
     }
 
@@ -205,16 +216,21 @@ public final class MaintenanceRunner {
             + Glob.expand("~/Library/Caches/com.apple.iconservices")
         let outcome = remover.remove(caches, disposal: .delete)
 
-        if let killall = Shell.which("killall") {
-            _ = Shell.run(killall, ["Dock"], timeout: 5)
-        }
+        let restarted =
+            Shell.which("killall").map {
+                Shell.runDetailed($0, ["Dock"], timeout: 5).succeeded
+            } ?? false
+        let succeeded = outcome.failed.isEmpty && outcome.refused.isEmpty && restarted
         return .init(
             task: task,
-            succeeded: true,
-            detail: outcome.bytesReclaimed > 0
-                ? "Reclaimed \(Bytes.format(outcome.bytesReclaimed))"
-                : "Icon cache rebuilt",
-            bytesFreed: outcome.bytesReclaimed
+            succeeded: succeeded,
+            detail: succeeded
+                ? (outcome.bytesFreed > 0
+                    ? "Freed \(Bytes.format(outcome.bytesFreed))"
+                    : "Icon cache rebuilt")
+                : "Icon cache could not be rebuilt completely",
+            bytesFreed: outcome.bytesFreed,
+            historyEntries: outcome.historyEntries
         )
     }
 
@@ -225,24 +241,40 @@ public final class MaintenanceRunner {
         guard Shell.exists(lsregister) else {
             return .init(task: task, succeeded: false, detail: "lsregister unavailable", bytesFreed: 0)
         }
-        _ = Shell.run(
+        let result = Shell.runDetailed(
             lsregister,
             ["-kill", "-r", "-domain", "local", "-domain", "system", "-domain", "user"],
             timeout: 120
         )
-        return .init(task: task, succeeded: true, detail: "File associations rebuilt", bytesFreed: 0)
+        return .init(
+            task: task,
+            succeeded: result.succeeded,
+            detail: result.succeeded
+                ? "File associations rebuilt"
+                : (result.lastMeaningfulLine ?? "Launch Services rebuild failed"),
+            bytesFreed: 0
+        )
     }
 
     private func verifySpotlight(_ task: MaintenanceTask) -> MaintenanceResult {
-        guard let mdutil = Shell.which("mdutil"),
-            let output = Shell.run(mdutil, ["-s", "/"], timeout: 8)
+        guard let mdutil = Shell.which("mdutil")
         else {
             return .init(task: task, succeeded: false, detail: "Could not query Spotlight", bytesFreed: 0)
         }
+        let result = Shell.runDetailed(mdutil, ["-s", "/"], timeout: 8)
+        guard result.succeeded else {
+            return .init(
+                task: task,
+                succeeded: false,
+                detail: result.lastMeaningfulLine ?? "Could not query Spotlight",
+                bytesFreed: 0
+            )
+        }
+        let output = result.output
         let enabled = !output.localizedCaseInsensitiveContains("disabled")
         return .init(
             task: task,
-            succeeded: true,
+            succeeded: enabled,
             detail: enabled ? "Indexing enabled and healthy" : "Indexing is disabled for this volume",
             bytesFreed: 0
         )
@@ -306,11 +338,15 @@ public final class MaintenanceRunner {
             )
         }
         let outcome = Remover().remove(broken, disposal: .trash)
+        let succeeded = outcome.failed.isEmpty && outcome.refused.isEmpty
         return .init(
             task: task,
-            succeeded: true,
-            detail: "Moved \(Count.files(outcome.removed.count)) to Trash" + suffix,
-            bytesFreed: outcome.bytesReclaimed
+            succeeded: succeeded,
+            detail: succeeded
+                ? "Moved \(Count.files(outcome.removed.count)) to Trash" + suffix
+                : "Some invalid preferences could not be moved to Trash" + suffix,
+            bytesFreed: outcome.bytesFreed,
+            historyEntries: outcome.historyEntries
         )
     }
 
@@ -327,11 +363,15 @@ public final class MaintenanceRunner {
             return .init(task: task, succeeded: true, detail: "No stale window states", bytesFreed: 0)
         }
         let outcome = Remover().remove(candidates, disposal: .trash)
+        let succeeded = outcome.failed.isEmpty && outcome.refused.isEmpty
         return .init(
             task: task,
-            succeeded: true,
-            detail: "Cleared \(outcome.removed.count) stale states",
-            bytesFreed: outcome.bytesReclaimed
+            succeeded: succeeded,
+            detail: succeeded
+                ? "Cleared \(outcome.removed.count) stale states"
+                : "Some stale states could not be moved to Trash",
+            bytesFreed: outcome.bytesFreed,
+            historyEntries: outcome.historyEntries
         )
     }
 
@@ -340,14 +380,20 @@ public final class MaintenanceRunner {
         guard !orphaned.isEmpty else {
             return .init(task: task, succeeded: true, detail: "No broken startup items", bytesFreed: 0)
         }
-        for item in orphaned { StartupInventory.unload(item) }
-        let outcome = Remover().remove(orphaned.map(\.url), disposal: .trash)
+        let unloaded = orphaned.filter { StartupInventory.unload($0) }
+        let outcome = Remover().remove(unloaded.map(\.url), disposal: .trash)
+        let succeeded =
+            unloaded.count == orphaned.count
+            && outcome.failed.isEmpty
+            && outcome.refused.isEmpty
         return .init(
             task: task,
-            succeeded: true,
-            detail:
-                "Removed \(outcome.removed.count) broken \(outcome.removed.count == 1 ? "item" : "items")",
-            bytesFreed: outcome.bytesReclaimed
+            succeeded: succeeded,
+            detail: succeeded
+                ? "Removed \(outcome.removed.count) broken \(outcome.removed.count == 1 ? "item" : "items")"
+                : "Some startup jobs could not be unloaded or removed",
+            bytesFreed: outcome.bytesFreed,
+            historyEntries: outcome.historyEntries
         )
     }
 
@@ -355,9 +401,15 @@ public final class MaintenanceRunner {
         guard let killall = Shell.which("killall") else {
             return .init(task: task, succeeded: false, detail: "killall unavailable", bytesFreed: 0)
         }
-        _ = Shell.run(killall, ["Finder"], timeout: 5)
-        _ = Shell.run(killall, ["Dock"], timeout: 5)
-        return .init(task: task, succeeded: true, detail: "Finder and Dock relaunched", bytesFreed: 0)
+        let finder = Shell.runDetailed(killall, ["Finder"], timeout: 5)
+        let dock = Shell.runDetailed(killall, ["Dock"], timeout: 5)
+        let succeeded = finder.succeeded && dock.succeeded
+        return .init(
+            task: task,
+            succeeded: succeeded,
+            detail: succeeded ? "Finder and Dock relaunched" : "Finder or Dock could not be relaunched",
+            bytesFreed: 0
+        )
     }
 
     private func verifyDisk(_ task: MaintenanceTask) -> MaintenanceResult {

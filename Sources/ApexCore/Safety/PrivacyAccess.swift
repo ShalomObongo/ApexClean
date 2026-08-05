@@ -183,4 +183,14 @@ public enum PrivacyAccess {
         else { return }
         NSWorkspace.shared.open(url)
     }
+
+    @MainActor
+    public static func openFilesAndFoldersSettings() {
+        guard
+            let url = URL(
+                string: "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+            )
+        else { return }
+        NSWorkspace.shared.open(url)
+    }
 }

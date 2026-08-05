@@ -49,9 +49,16 @@ final class OnboardingModel: ObservableObject {
         // app, so starting over would mean the assistant appears to forget the
         // work the moment it succeeds.
         let saved = Step(rawValue: Settings.setupStep) ?? .welcome
-        step = saved
-        resumed = saved != .welcome
-        refresh()
+        if signatureChanged {
+            Settings.prepareForChangedSignature()
+            step = .welcome
+            resumed = false
+            states = Dictionary(uniqueKeysWithValues: Permission.allCases.map { ($0, .notDetermined) })
+        } else {
+            step = saved
+            resumed = saved != .welcome
+            refresh()
+        }
     }
 
     func acknowledgeResume() {

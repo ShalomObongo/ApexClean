@@ -161,6 +161,7 @@ struct ApexCheckbox: View {
     @Binding var isOn: Bool
     var tint: Color = Palette.jade
     var isMixed: Bool = false
+    var label: String = "Selection"
 
     @Environment(\.colorScheme) private var scheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -198,6 +199,7 @@ struct ApexCheckbox: View {
                 .padding(-6)
         }
         .buttonStyle(.plain)
+        .accessibilityLabel(label)
         .accessibilityAddTraits(.isToggle)
         .accessibilityValue(isMixed ? "Mixed" : (isOn ? "Selected" : "Not selected"))
     }

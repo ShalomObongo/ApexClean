@@ -1,7 +1,7 @@
 import Foundation
 
 /// A file or directory believed to belong to a specific application.
-public struct Leftover: Identifiable, Hashable {
+public struct Leftover: Identifiable, Hashable, Sendable {
     public var id: String { url.path }
     public let url: URL
     public let bytes: Int64
@@ -36,13 +36,13 @@ public struct Leftover: Identifiable, Hashable {
         /// at it. Anything weaker is listed but left for them to decide.
         public var isSafeToPreselect: Bool {
             switch self {
-            case .bundleIdentifier, .exactName: true
-            case .derivedName: false
+            case .bundleIdentifier: true
+            case .exactName, .derivedName: false
             }
         }
     }
 
-    public enum Kind: String, CaseIterable {
+    public enum Kind: String, CaseIterable, Sendable {
         case support = "Application Support"
         case caches = "Caches"
         case preferences = "Preferences"
@@ -73,10 +73,11 @@ public struct Leftover: Identifiable, Hashable {
     public var displayPath: String { Glob.display(url.path) }
 }
 
-public struct UninstallPlan {
+public struct UninstallPlan: Sendable {
     public let app: InstalledApp
     public var bundle: URL
     public var leftovers: [Leftover]
+    public var uninstallVerdict: PathGuard.Verdict = .allowed
     /// Files that belong to this app but sit outside the blast radius
     /// ApexClean will operate in — almost always root-owned launch daemons and
     /// privileged helpers under `/Library`.
@@ -131,7 +132,10 @@ public enum LeftoverFinder {
         let bundleID = app.bundleID
         let bundleIDIsUsable = isReverseDNS(bundleID)
         let name = app.name
-        let nameIsUsable = name.count >= 4 && !ambiguousNames.contains(name.lowercased())
+        let nameIsUsable =
+            isSafePathComponent(name)
+            && name.count >= 4
+            && !ambiguousNames.contains(name.lowercased())
 
         func add(
             _ url: URL,
@@ -141,9 +145,17 @@ public enum LeftoverFinder {
         ) {
             let path = url.standardizedFileURL.path
             guard found[path] == nil else { return }
+            let exists =
+                Guarded.run(budget: 1) {
+                    FileManager.default.fileExists(atPath: path)
+                } ?? false
+            guard exists else { return }
+
             guard PathGuard.evaluate(url).isAllowed else {
-                // Reported rather than dropped. Silence here meant a root
-                // launch daemon survived an uninstall with no trace in the UI.
+                // Only identifier-bound system artifacts are strong enough to
+                // report outside ApexClean's writable roots. A display name is
+                // app-controlled metadata and can never justify bypass advice.
+                guard confidence == .bundleIdentifier else { return }
                 elevated[path] = Leftover(
                     url: url,
                     bytes: Guarded.run(budget: 3) { FileSize.measure(url).bytes } ?? 0,
@@ -164,11 +176,6 @@ public enum LeftoverFinder {
             // data and hiding it would make the uninstall incomplete. Only the
             // size is left unknown.
             if PrivacyAccess.requiresConsent(path) {
-                let exists =
-                    Guarded.run(budget: 1) {
-                        FileManager.default.fileExists(atPath: path)
-                    } ?? false
-                guard exists else { return }
                 found[path] = Leftover(
                     url: url,
                     bytes: 0,
@@ -180,7 +187,6 @@ public enum LeftoverFinder {
                 return
             }
 
-            guard FileManager.default.fileExists(atPath: path) else { return }
             let measured = Guarded.run(budget: 6) { FileSize.measure(url).bytes }
             found[path] = Leftover(
                 url: url,
@@ -320,6 +326,7 @@ public enum LeftoverFinder {
             app: app,
             bundle: app.url,
             leftovers: found.values.sorted { $0.bytes > $1.bytes },
+            uninstallVerdict: uninstallVerdict(for: app),
             requiresAdmin: elevated.values.sorted { $0.bytes > $1.bytes }
         )
     }
@@ -328,11 +335,16 @@ public enum LeftoverFinder {
 
     static func isReverseDNS(_ identifier: String) -> Bool {
         guard identifier.count >= 5 else { return false }
-        let parts = identifier.split(separator: ".")
+        let parts = identifier.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count >= 2 else { return false }
-        let allowed = CharacterSet(
-            charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_")
-        return identifier.unicodeScalars.allSatisfy { allowed.contains($0) }
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "-"))
+        return parts.allSatisfy { part in
+            guard !part.isEmpty,
+                part.first != "-",
+                part.last != "-"
+            else { return false }
+            return part.unicodeScalars.allSatisfy { allowed.contains($0) }
+        }
     }
 
     /// True when `candidate` equals `bundleID` or extends it at a dot boundary.
@@ -364,6 +376,7 @@ public enum LeftoverFinder {
     ]
 
     static func nameVariants(_ name: String) -> [String] {
+        guard isSafePathComponent(name) else { return [] }
         var variants = [name]
         if name.contains(" ") {
             variants.append(name.replacingOccurrences(of: " ", with: ""))
@@ -392,7 +405,29 @@ public enum LeftoverFinder {
             break
         }
 
-        return Array(Set(variants))
+        return Array(Set(variants.filter(isSafePathComponent)))
+    }
+
+    static func isSafePathComponent(_ name: String) -> Bool {
+        guard !name.isEmpty,
+            name != ".",
+            name != "..",
+            !name.contains("/"),
+            !name.contains("\\"),
+            !name.contains("\0")
+        else { return false }
+        return URL(fileURLWithPath: name).lastPathComponent == name
+    }
+
+    private static func uninstallVerdict(for app: InstalledApp) -> PathGuard.Verdict {
+        let pathVerdict = PathGuard.canUninstall(bundleID: app.bundleID, path: app.url)
+        guard pathVerdict.isAllowed else { return pathVerdict }
+        if app.source == .homebrew {
+            return .refused(
+                reason: "Managed by Homebrew. Use Homebrew to run the cask's reviewed uninstall hooks."
+            )
+        }
+        return .allowed
     }
 
     private static func scanDirectory(_ url: URL, _ body: (URL) -> Void) {

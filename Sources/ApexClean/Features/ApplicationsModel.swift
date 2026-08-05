@@ -1,4 +1,4 @@
-import ApexCore
+@preconcurrency import ApexCore
 import SwiftUI
 
 @MainActor
@@ -37,6 +37,7 @@ final class ApplicationsModel: ObservableObject {
     @Published private(set) var upgradeFailures: [String: String] = [:]
     /// Startup items mid-removal, so their row can show progress.
     @Published private(set) var removingStartupItems: Set<String> = []
+    @Published private(set) var startupRemovalFailures: [String: String] = [:]
 
     enum Sort: String, CaseIterable, Identifiable {
         case size = "Size"
@@ -55,6 +56,10 @@ final class ApplicationsModel: ObservableObject {
     /// and `concurrentPerform` from a cooperative thread can starve the runtime
     /// outright — which is exactly how this screen ended up showing nothing.
     private let queue = DispatchQueue(label: "fit.apexclean.apps", qos: .userInitiated)
+    private let upgradeQueue = DispatchQueue(
+        label: "fit.apexclean.apps.upgrades",
+        qos: .userInitiated
+    )
     private var loadGeneration = 0
 
     init(history: OperationLog) {
@@ -91,27 +96,28 @@ final class ApplicationsModel: ObservableObject {
         let generation = loadGeneration
         // NSWorkspace is main-actor only; capture before leaving the main thread.
         let running = RunningApps.snapshot()
+        let model = self
 
-        queue.async { [weak self] in
+        queue.async {
             // Publish the list as soon as it exists, then fill in sizes. The
             // user sees a complete, usable list in milliseconds instead of
             // waiting on several seconds of bundle measurement.
             let discovered = AppInventory.scan(running: running)
             let startup = StartupInventory.scan()
             DispatchQueue.main.async {
-                guard let self, self.loadGeneration == generation else { return }
+                guard model.loadGeneration == generation else { return }
                 withAnimation(Motion.enter) {
-                    self.apps = discovered
-                    self.startupItems = startup
+                    model.apps = discovered
+                    model.startupItems = startup
                 }
             }
 
             let measured = AppInventory.measured(discovered)
             DispatchQueue.main.async {
-                guard let self, self.loadGeneration == generation else { return }
+                guard model.loadGeneration == generation else { return }
                 withAnimation(Motion.enter) {
-                    self.apps = measured
-                    self.isLoading = false
+                    model.apps = measured
+                    model.isLoading = false
                 }
             }
         }
@@ -121,19 +127,18 @@ final class ApplicationsModel: ObservableObject {
     /// not know" rather than "nothing is outdated".
     @Published private(set) var updateCheckFailed = false
     /// The Homebrew cask deregistered after an uninstall, if there was one.
-    @Published private(set) var forgottenCask: String?
 
     func checkUpdates() {
         guard HomebrewBridge.isAvailable, !isCheckingUpdates else { return }
         isCheckingUpdates = true
-        queue.async { [weak self] in
+        let model = self
+        queue.async {
             let result = HomebrewBridge.outdatedCaskResult()
             DispatchQueue.main.async {
-                guard let self else { return }
                 withAnimation(Motion.enter) {
-                    self.outdated = result.casks
-                    self.updateCheckFailed = !result.isReliable
-                    self.isCheckingUpdates = false
+                    model.outdated = result.casks
+                    model.updateCheckFailed = !result.isReliable
+                    model.isCheckingUpdates = false
                 }
             }
         }
@@ -147,11 +152,17 @@ final class ApplicationsModel: ObservableObject {
         pendingUninstallID = app.id
         plan = nil
         uninstallOutcome = nil
-        queue.async { [weak self] in
+        let model = self
+        let running = RunningApps.snapshot()
+        queue.async {
             let plan = LeftoverFinder.plan(for: app)
+            let identifier = app.bundleID.lowercased()
+            let liveSiblings =
+                AppInventory.scan(running: running)
+                .filter { $0.bundleID.lowercased() == identifier }
+                .count
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.plan = plan
+                model.plan = plan
                 // Preselect only matches strong enough to justify deleting
                 // without being looked at: the app's own bundle, and paths named
                 // for its bundle identifier or its full name.
@@ -166,9 +177,8 @@ final class ApplicationsModel: ObservableObject {
                 // would have auto-ticked the preferences, containers and group
                 // containers that the surviving copy is still using — signing
                 // the user out and wiping its configuration.
-                let sharedIdentifier =
-                    self.apps.filter { $0.bundleID == app.bundleID }.count > 1
-                self.planSelection = Set(
+                let sharedIdentifier = identifier.isEmpty || liveSiblings != 1
+                model.planSelection = Set(
                     plan.leftovers
                         .filter { leftover in
                             guard leftover.confidence.isSafeToPreselect else { return false }
@@ -179,9 +189,9 @@ final class ApplicationsModel: ObservableObject {
                         }
                         .map(\.id)
                 )
-                self.planSelection.insert(plan.bundle.path)
-                self.isBuildingPlan = false
-                self.pendingUninstallID = nil
+                model.planSelection.insert(plan.bundle.path)
+                model.isBuildingPlan = false
+                model.pendingUninstallID = nil
             }
         }
     }
@@ -190,7 +200,6 @@ final class ApplicationsModel: ObservableObject {
         plan = nil
         planSelection = []
         uninstallOutcome = nil
-        forgottenCask = nil
     }
 
     var planSelectedBytes: Int64 {
@@ -203,6 +212,23 @@ final class ApplicationsModel: ObservableObject {
 
     func performUninstall() {
         guard let plan, !isUninstalling else { return }
+        guard plan.uninstallVerdict.isAllowed else {
+            var outcome = Remover.Outcome()
+            outcome.refused.append(
+                (plan.bundle, plan.uninstallVerdict.reason ?? "ApexClean refused this uninstall")
+            )
+            uninstallOutcome = outcome
+            return
+        }
+
+        let running = RunningApps.snapshot()
+        guard !running.contains(plan.app.bundleID) else {
+            var outcome = Remover.Outcome()
+            outcome.refused.append((plan.bundle, "\(plan.app.name) is currently running"))
+            uninstallOutcome = outcome
+            return
+        }
+
         isUninstalling = true
 
         var urls: [URL] = []
@@ -218,34 +244,71 @@ final class ApplicationsModel: ObservableObject {
 
         let historyRef = history
         let name = plan.app.name
-        let bundlePath = plan.bundle.standardizedFileURL.path
-        let removingBundle = planSelection.contains(plan.bundle.path)
+        let removalURLs = urls
+        let removalSizes = sizes
+        let launchAgentURLs = Set(
+            plan.leftovers
+                .filter { $0.kind == .launchAgents && planSelection.contains($0.id) }
+                .map(\.url)
+        )
+        let model = self
+        let identifier = plan.app.bundleID.lowercased()
 
-        queue.async { [weak self] in
-            let remover = Remover(history: historyRef)
-            let outcome = remover.remove(urls, disposal: .trash, knownSizes: sizes)
-
-            // Homebrew has to be told, or it still believes the cask is
-            // installed: `brew list --cask` keeps reporting it, its staged
-            // payload stays on disk, and `brew outdated` keeps offering it — so
-            // the app reappears in ApexClean's own Updates tab and pressing
-            // Update reinstalls what the user just removed.
-            var forgotten: String?
-            if removingBundle,
-                outcome.removed.contains(where: {
-                    $0.standardizedFileURL.path == bundlePath
-                })
-            {
-                let token = HomebrewBridge.caskTokensByAppPath()[bundlePath]
-                if let token, HomebrewBridge.forgetCask(token) { forgotten = token }
+        queue.async {
+            let liveSiblings =
+                AppInventory.scan(running: running)
+                .filter { $0.bundleID.lowercased() == identifier }
+                .count
+            guard !identifier.isEmpty, liveSiblings == 1 else {
+                var refused = Remover.Outcome()
+                refused.refused.append(
+                    (
+                        plan.bundle,
+                        "Another installed application shares this bundle identifier"
+                    )
+                )
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
             }
+            guard Bundle(url: plan.bundle)?.bundleIdentifier?.lowercased() == identifier else {
+                var refused = Remover.Outcome()
+                refused.refused.append((plan.bundle, "The application changed after review"))
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
+            }
+            let remover = Remover()
+            var safeURLs = removalURLs
+            var preloadRefusals: [(url: URL, reason: String)] = []
+            for url in launchAgentURLs where !StartupInventory.unload(plist: url) {
+                safeURLs.removeAll { $0 == url }
+                preloadRefusals.append(
+                    (url, "The launch job could not be unloaded, so its plist was left in place")
+                )
+            }
+            var outcome = remover.remove(
+                safeURLs,
+                disposal: .trash,
+                knownSizes: removalSizes
+            )
+            outcome.refused += preloadRefusals
 
-            _ = historyRef.commitSession(title: "Uninstalled \(name)")
+            _ = historyRef.commitSession(
+                title: "Uninstalled \(name)",
+                entries: outcome.historyEntries
+            )
+            let finalOutcome = outcome
             DispatchQueue.main.async {
-                self?.uninstallOutcome = outcome
-                self?.forgottenCask = forgotten
-                self?.isUninstalling = false
-                self?.load()
+                model.uninstallOutcome = finalOutcome
+                model.isUninstalling = false
+                model.load()
             }
         }
     }
@@ -253,19 +316,36 @@ final class ApplicationsModel: ObservableObject {
     // MARK: - Startup
 
     func removeStartupItem(_ item: StartupItem) {
-        guard item.scope == .userAgent, !removingStartupItems.contains(item.id) else { return }
+        guard item.scope == .userAgent,
+            !item.isApple,
+            !removingStartupItems.contains(item.id)
+        else { return }
         removingStartupItems.insert(item.id)
+        startupRemovalFailures[item.id] = nil
         let historyRef = history
         let url = item.url
         let id = item.id
-        queue.async { [weak self] in
-            StartupInventory.unload(item)
-            let remover = Remover(history: historyRef)
-            _ = remover.remove([url], disposal: .trash)
-            _ = historyRef.commitSession(title: "Removed startup item")
+        let model = self
+        queue.async {
+            guard StartupInventory.unload(item) else {
+                DispatchQueue.main.async {
+                    model.removingStartupItems.remove(id)
+                    model.startupRemovalFailures[id] =
+                        "The launch job could not be unloaded, so its plist was left in place."
+                }
+                return
+            }
+            let remover = Remover()
+            let outcome = remover.remove([url], disposal: .trash)
+            _ = historyRef.commitSession(
+                title: "Removed startup item",
+                entries: outcome.historyEntries
+            )
             DispatchQueue.main.async {
-                self?.removingStartupItems.remove(id)
-                self?.load()
+                model.removingStartupItems.remove(id)
+                model.startupRemovalFailures[id] =
+                    outcome.refused.first?.reason ?? outcome.failed.first?.error
+                model.load()
             }
         }
     }
@@ -279,19 +359,19 @@ final class ApplicationsModel: ObservableObject {
         // Its own queue, not the shared serial one: a cask upgrade downloads a
         // whole application and can run for minutes, and nothing else in this
         // screen should be stuck behind it.
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        let model = self
+        upgradeQueue.async {
             let outcome = HomebrewBridge.upgrade(token)
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.upgrading.remove(token)
+                model.upgrading.remove(token)
                 if outcome.succeeded {
-                    self.upgraded.insert(token)
-                    self.outdated.removeAll { $0.token == token }
+                    model.upgraded.insert(token)
+                    model.outdated.removeAll { $0.token == token }
                     // Re-read the inventory so the installed version and size
                     // reflect the app that is now actually on disk.
-                    self.load()
+                    model.load()
                 } else {
-                    self.upgradeFailures[token] = outcome.message
+                    model.upgradeFailures[token] = outcome.message
                 }
             }
         }

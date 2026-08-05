@@ -3,15 +3,28 @@ import SwiftUI
 /// Humanist typography scale for the Coastal Atlas interface.
 enum Typo {
     static func display(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .custom("Avenir Next", fixedSize: size).weight(weight)
+        .custom(
+            "Avenir Next",
+            size: size,
+            relativeTo: size >= 24 ? .title : (size >= 14 ? .headline : .body)
+        )
+        .weight(weight)
     }
 
     static func metric(_ size: CGFloat, weight: Font.Weight = .semibold) -> Font {
-        .custom("Avenir Next", fixedSize: size).weight(weight).monospacedDigit()
+        .custom(
+            "Avenir Next",
+            size: size,
+            relativeTo: size >= 18 ? .title : .body
+        )
+        .weight(weight)
+        .monospacedDigit()
     }
 
     static func numeric(_ size: CGFloat, weight: Font.Weight = .medium) -> Font {
-        .custom("Avenir Next", fixedSize: size).weight(weight).monospacedDigit()
+        .custom("Avenir Next", size: size, relativeTo: .body)
+            .weight(weight)
+            .monospacedDigit()
     }
 
     static let title = display(25, weight: .bold)

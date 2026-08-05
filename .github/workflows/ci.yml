@@ -69,6 +69,18 @@ jobs:
         if: failure()
         run: echo "::notice::Run 'make format' locally to apply the project style."
 
+  strict-concurrency:
+    name: Swift concurrency safety
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Build with complete checking
+        run: |
+          swift build \
+            -Xswiftc -strict-concurrency=complete \
+            -Xswiftc -warnings-as-errors
+
   # ---------------------------------------------------------------------------
   # Build and test across supported macOS versions. Both runners are Apple
   # Silicon; Intel support is proven by the universal build in `bundle`.

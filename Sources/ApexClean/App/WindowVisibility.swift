@@ -9,6 +9,7 @@ import Combine
 /// post an occlusion change — so all of them are merged into one signal and
 /// the answer is recomputed from scratch each time rather than tracked
 /// incrementally, which would drift.
+@MainActor
 enum WindowVisibility {
     static var changes: AnyPublisher<Notification, Never> {
         let center = NotificationCenter.default

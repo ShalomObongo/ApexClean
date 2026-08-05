@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public struct MemoryVitals: Equatable {
+public struct MemoryVitals: Equatable, Sendable {
     public var total: Int64 = 0
     public var used: Int64 = 0
     public var active: Int64 = 0
@@ -61,7 +61,9 @@ public enum MemorySampler {
         }
         guard result == KERN_SUCCESS else { return vitals }
 
-        let pageSize = Int64(vm_kernel_page_size)
+        var rawPageSize: vm_size_t = 0
+        guard host_page_size(mach_host_self(), &rawPageSize) == KERN_SUCCESS else { return vitals }
+        let pageSize = Int64(rawPageSize)
         vitals.active = Int64(stats.active_count) * pageSize
         vitals.wired = Int64(stats.wire_count) * pageSize
         vitals.compressed = Int64(stats.compressor_page_count) * pageSize

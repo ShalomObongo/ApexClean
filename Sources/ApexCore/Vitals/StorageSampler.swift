@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public struct StorageVitals: Equatable {
+public struct StorageVitals: Equatable, Sendable {
     public var name: String = "Macintosh HD"
     public var total: Int64 = 0
     public var free: Int64 = 0
@@ -12,7 +12,7 @@ public struct StorageVitals: Equatable {
     public var usedFraction: Double { total > 0 ? Double(used) / Double(total) : 0 }
 }
 
-public struct NetworkVitals: Equatable {
+public struct NetworkVitals: Equatable, Sendable {
     public var downloadBytesPerSecond: Double = 0
     public var uploadBytesPerSecond: Double = 0
     public var totalReceived: Int64 = 0
@@ -122,6 +122,8 @@ public final class NetworkSampler {
         let raw = Self.rawCounters()
         let now = Date()
         let elapsed = lastSampleTime.map { now.timeIntervalSince($0) } ?? 0
+        let previousTotalReceived = totalReceived
+        let previousTotalSent = totalSent
 
         if !hasSeededTotals {
             let seed = Self.seedTotals()
@@ -139,21 +141,27 @@ public final class NetworkSampler {
         var busiest: UInt64 = 0
 
         for (name, counters) in raw {
+            var traffic: UInt64 = 0
             if let previous = lastRaw[name] {
                 if let step = Self.delta(previous.received, counters.received) {
                     receivedDelta += step
+                    traffic += UInt64(step)
                 } else {
                     sawCounterReset = true
                 }
                 if let step = Self.delta(previous.sent, counters.sent) {
                     sentDelta += step
+                    traffic += UInt64(step)
                 } else {
                     sawCounterReset = true
                 }
             }
             // An interface seen for the first time contributes no delta: its
             // counter already holds history this process never observed.
-            let busyness = UInt64(counters.received) + UInt64(counters.sent)
+            let busyness =
+                lastRaw[name] == nil
+                ? UInt64(counters.received) + UInt64(counters.sent)
+                : traffic
             if busyness > busiest {
                 busiest = busyness
                 vitals.interface = name
@@ -168,6 +176,8 @@ public final class NetworkSampler {
         // A counter went backwards, so this sample's arithmetic is unreliable.
         // Rather than guess, ask the one source that knows.
         if sawCounterReset, let truth = Self.seedTotalsIfPossible() {
+            receivedDelta = max(0, truth.received - previousTotalReceived)
+            sentDelta = max(0, truth.sent - previousTotalSent)
             totalReceived = truth.received
             totalSent = truth.sent
         }

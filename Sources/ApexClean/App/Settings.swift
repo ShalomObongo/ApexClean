@@ -1,5 +1,6 @@
 import ApexCore
 import Foundation
+import Security
 
 /// Preferences that must survive quitting the app.
 ///
@@ -13,6 +14,7 @@ import Foundation
 /// changes on every build, and macOS treats each build as a different app. The
 /// signature is therefore recorded alongside the setup state, so a rebuild is
 /// reported honestly instead of showing stale permissions that no longer apply.
+@MainActor
 enum Settings {
     private static let defaults = UserDefaults.standard
 
@@ -102,15 +104,52 @@ enum Settings {
         defaults.removeObject(forKey: Key.askedPermissions)
     }
 
+    static func prepareForChangedSignature() {
+        defaults.removeObject(forKey: Key.setupStep)
+        defaults.removeObject(forKey: Key.askedPermissions)
+    }
+
     /// Identifies this specific build to macOS's privacy database.
     ///
     /// The bundle version stands in for the code signature: both change exactly
     /// when a rebuild produces a binary TCC considers new.
     private static var currentSignature: String {
+        if let signingIdentity { return signingIdentity }
         let info = Bundle.main.infoDictionary
         let short = info?["CFBundleShortVersionString"] as? String ?? "?"
         let build = info?["CFBundleVersion"] as? String ?? "?"
         return "\(short)+\(build)"
+    }
+
+    private static var signingIdentity: String? {
+        var dynamicCode: SecCode?
+        guard SecCodeCopySelf([], &dynamicCode) == errSecSuccess,
+            let dynamicCode
+        else { return nil }
+
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(dynamicCode, [], &staticCode) == errSecSuccess,
+            let staticCode
+        else { return nil }
+
+        var raw: CFDictionary?
+        guard
+            SecCodeCopySigningInformation(
+                staticCode,
+                SecCSFlags(rawValue: kSecCSSigningInformation),
+                &raw
+            ) == errSecSuccess,
+            let info = raw as? [String: Any],
+            let identifier = info[kSecCodeInfoIdentifier as String] as? String
+        else { return nil }
+
+        if let team = info[kSecCodeInfoTeamIdentifier as String] as? String,
+            !team.isEmpty
+        {
+            return "\(identifier)|team:\(team)"
+        }
+        guard let unique = info[kSecCodeInfoUnique as String] as? Data else { return nil }
+        return "\(identifier)|adhoc:" + unique.map { String(format: "%02x", $0) }.joined()
     }
 }
 

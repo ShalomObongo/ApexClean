@@ -16,6 +16,7 @@ struct MaintenanceView: View {
                 header
                 if !model.results.isEmpty { summary }
                 grid
+                    .disabled(model.isRunning)
                 honesty
             }
             .padding(28)
@@ -33,7 +34,7 @@ struct MaintenanceView: View {
         ) {
             ApexButton(
                 title: model.isRunning
-                    ? "Running \(model.completedCount)/\(model.selectedTasks.count)"
+                    ? "Running \(model.completedCount)/\(model.queuedCount)"
                     : "Run \(model.selection.count) selected",
                 symbol: "play.fill",
                 kind: .primary,
@@ -49,16 +50,27 @@ struct MaintenanceView: View {
         ApexCard(padding: 16, accent: Palette.jade) {
             HStack(spacing: 14) {
                 ZStack {
-                    Circle().fill(Palette.jade.opacity(0.13)).frame(width: 40, height: 40)
-                    Image(systemName: model.isRunning ? "gearshape.2" : "checkmark")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(Palette.info)
-                        .symbolEffect(.pulse, isActive: model.isRunning)
+                    Circle()
+                        .fill((model.hasFailures ? Palette.caution : Palette.jade).opacity(0.13))
+                        .frame(width: 40, height: 40)
+                    Image(
+                        systemName: model.isRunning
+                            ? "gearshape.2"
+                            : (model.hasFailures ? "exclamationmark" : "checkmark")
+                    )
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(model.hasFailures ? Palette.caution : Palette.info)
+                    .symbolEffect(.pulse, isActive: model.isRunning)
                 }
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(model.isRunning ? "Working through the queue" : "Maintenance complete")
-                        .font(Typo.cardTitle)
-                        .foregroundStyle(Palette.ink(scheme))
+                    Text(
+                        model.isRunning
+                            ? "Working through the queue"
+                            : (model.hasFailures
+                                ? "Maintenance finished with issues" : "Maintenance complete")
+                    )
+                    .font(Typo.cardTitle)
+                    .foregroundStyle(Palette.ink(scheme))
                     Text(
                         model.totalFreed > 0
                             ? "\(model.completedCount) tasks finished · \(Bytes.format(model.totalFreed)) reclaimed"
@@ -133,7 +145,8 @@ private struct TaskCard: View {
                 Button(action: { if !isRunning { onToggle() } }) {
                     HStack(spacing: 11) {
                         ApexCheckbox(
-                            isOn: Binding(get: { isSelected }, set: { _ in onToggle() })
+                            isOn: Binding(get: { isSelected }, set: { _ in onToggle() }),
+                            label: task.title
                         )
                         .disabled(isRunning)
                         .allowsHitTesting(false)

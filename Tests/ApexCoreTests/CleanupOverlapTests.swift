@@ -6,9 +6,10 @@ import XCTest
 /// or a path being listed under two findings so that removing one silently
 /// invalidates the other.
 final class CleanupOverlapTests: XCTestCase {
-    /// Two rules resolving to the same directory tree is legitimate and does
-    /// occur in the shipped catalogue — the scanner is what has to cope.
-    func testCatalogueOverlapsAreReal() {
+    /// Static overlaps can erase stricter risk/category/quit metadata when a
+    /// broad rule wins. Keep the shipped catalog unambiguous; the scanner's
+    /// runtime deduplication remains a final defence for wildcard expansion.
+    func testCatalogueHasNoStaticOverlaps() {
         let rules = CleanupCatalog.all
         let patterns = rules.map(\.pattern)
 
@@ -22,13 +23,9 @@ final class CleanupOverlapTests: XCTestCase {
             nested += patterns.filter { $0 != pattern && $0.hasPrefix(base + "/") }.count
         }
 
-        // Not an aspiration that these reach zero — `~/Library/Logs/*` and
-        // `~/Library/Logs/CoreSimulator/*` are both useful entries. This asserts
-        // the condition the deduplication exists to handle is present, so the
-        // guarantee below is not vacuous.
-        XCTAssertGreaterThan(
+        XCTAssertEqual(
             duplicated.count + nested, 0,
-            "the catalogue has no overlaps, so the dedup guarantee is untested"
+            "static overlaps can silently discard stricter safety metadata"
         )
     }
 

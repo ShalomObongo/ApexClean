@@ -21,6 +21,7 @@ struct ApexCleanApp: App {
         Window("ApexClean", id: "main") {
             RootView()
                 .environmentObject(state)
+                .onAppear { delegate.state = state }
         }
         .defaultSize(width: 1_180, height: 780)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
@@ -38,6 +39,10 @@ struct ApexCleanApp: App {
                     state.cleanup.scan()
                 }
                 .keyboardShortcut("r", modifiers: .command)
+                .disabled(
+                    state.cleanup.stage == .scanning
+                        || state.cleanup.stage == .cleaning
+                )
 
                 Button("Set Up ApexClean…") { state.restartOnboarding() }
             }
@@ -68,7 +73,10 @@ struct ApexCleanApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    weak var state: AppState?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
@@ -78,5 +86,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // The menu bar HUD outlives the window; closing the window should not
         // quit an app whose whole point is to sit quietly in the menu bar.
         false
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard state?.hasDestructiveWorkInFlight == true else { return .terminateNow }
+
+        sender.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "An operation is still changing files"
+        alert.informativeText =
+            "Keep ApexClean open until the current operation finishes so its result and history remain complete."
+        alert.addButton(withTitle: "Keep Running")
+        alert.addButton(withTitle: "Quit Anyway")
+        return alert.runModal() == .alertSecondButtonReturn ? .terminateNow : .terminateCancel
     }
 }

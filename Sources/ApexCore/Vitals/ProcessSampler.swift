@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-public struct ProcessVitals: Identifiable, Equatable {
+public struct ProcessVitals: Identifiable, Equatable, Sendable {
     public var id: Int32
     public var name: String
     public var cpuPercent: Double

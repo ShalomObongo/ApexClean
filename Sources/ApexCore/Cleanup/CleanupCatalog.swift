@@ -23,7 +23,6 @@ public enum CleanupCatalog {
         // Per-app caches keyed by bundle identifier. These live under
         // ~/Library/Caches/<bundle-id>, which every vendor treats as disposable.
         let bundleCaches: [(String, String)] = [
-            ("Spotify", "com.spotify.client"),
             ("Slack", "com.tinyspeck.slackmacgap"),
             ("Discord", "com.hnc.Discord"),
             ("Figma", "com.figma.Desktop"),
@@ -76,7 +75,6 @@ public enum CleanupCatalog {
             ("Sublime Text", "com.sublimetext.*"),
             ("Ghostty", "com.mitchellh.ghostty"),
             ("Warp", "dev.warp.Warp-Stable"),
-            ("Zed", "Zed"),
             ("Parallels", "com.parallels.*"),
             ("VMware Fusion", "com.vmware.fusion"),
             ("UTM", "com.utmapp.UTM"),
@@ -162,7 +160,6 @@ public enum CleanupCatalog {
             ("Notion", "notion.id"),
             ("Figma", "com.figma.Desktop"),
             ("Linear", "com.linear"),
-            ("Spotify", "com.spotify.client"),
             ("Postman", "com.postmanlabs.mac"),
             ("Obsidian", "md.obsidian"),
         ]
@@ -218,7 +215,6 @@ public enum CleanupCatalog {
 
     static var logs: [CleanupRule] {
         [
-            CleanupRule("Application logs", "~/Library/Logs/*", .appLogs, risk: .regenerable),
             CleanupRule("Diagnostic reports", "~/Library/Logs/DiagnosticReports/*", .appLogs),
             CleanupRule("Crash reports", "~/Library/DiagnosticReports/*", .appLogs),
             CleanupRule("Crashlytics data", "~/Library/Caches/com.crashlytics.data/*", .appLogs),
@@ -231,8 +227,12 @@ public enum CleanupCatalog {
             CleanupRule("Minecraft logs", "~/Library/Application Support/minecraft/logs/*", .appLogs),
             CleanupRule("Google Cloud logs", "~/.config/gcloud/logs/*", .appLogs),
             CleanupRule("Azure CLI logs", "~/.azure/logs/*", .appLogs),
-            CleanupRule("Xcode device logs", "~/Library/Developer/Xcode/iOS Device Logs/*", .appLogs),
-            CleanupRule("watchOS device logs", "~/Library/Developer/Xcode/watchOS Device Logs/*", .appLogs),
+            CleanupRule(
+                "Xcode device logs", "~/Library/Developer/Xcode/iOS Device Logs/*", .appLogs,
+                requiresQuit: ["com.apple.dt.Xcode"]),
+            CleanupRule(
+                "watchOS device logs", "~/Library/Developer/Xcode/watchOS Device Logs/*", .appLogs,
+                requiresQuit: ["com.apple.dt.Xcode"]),
         ]
     }
 
@@ -242,10 +242,14 @@ public enum CleanupCatalog {
         [
             CleanupRule("User temporary files", "~/Library/Caches/TemporaryItems/*", .systemJunk),
             CleanupRule(
-                "Incomplete Safari downloads", "~/Downloads/*.download", .systemJunk, risk: .noticeable),
+                "Incomplete Safari downloads", "~/Downloads/*.download", .systemJunk, risk: .noticeable,
+                minimumAgeDays: 1),
             CleanupRule(
-                "Incomplete Chrome downloads", "~/Downloads/*.crdownload", .systemJunk, risk: .noticeable),
-            CleanupRule("Partial downloads", "~/Downloads/*.part", .systemJunk, risk: .noticeable),
+                "Incomplete Chrome downloads", "~/Downloads/*.crdownload", .systemJunk, risk: .noticeable,
+                minimumAgeDays: 1),
+            CleanupRule(
+                "Partial downloads", "~/Downloads/*.part", .systemJunk, risk: .noticeable,
+                minimumAgeDays: 1),
             CleanupRule(
                 "Recent items list",
                 "~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.Recent*.sfl*",
@@ -330,11 +334,11 @@ public enum CleanupCatalog {
             CleanupRule(
                 "Chrome on-device models",
                 "~/Library/Application Support/Google/Chrome/OptGuideOnDeviceModel/*", .browserData,
-                risk: .rebuildCost),
+                risk: .rebuildCost, requiresQuit: ["com.google.Chrome"]),
             CleanupRule(
                 "Chrome optimization models",
                 "~/Library/Application Support/Google/Chrome/optimization_guide_model_store/*", .browserData,
-                risk: .rebuildCost),
+                risk: .rebuildCost, requiresQuit: ["com.google.Chrome"]),
             CleanupRule(
                 "Google updater cache", "~/Library/Application Support/Google/GoogleUpdater/crx_cache/*",
                 .browserData),
@@ -392,7 +396,6 @@ public enum CleanupCatalog {
             ("Poetry cache", "~/.cache/poetry/*"),
             ("pip cache", "~/Library/Caches/pip/*"),
             ("uv cache", "~/.cache/uv/*"),
-            ("Dart Pub cache", "~/.pub-cache/*"),
             ("Hex cache", "~/.hex/cache/*"),
             ("Opam cache", "~/.opam/download-cache/*"),
             ("Cabal cache", "~/.cabal/packages/*"),
@@ -441,24 +444,27 @@ public enum CleanupCatalog {
                 risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
                 "Xcode build products", "~/Library/Developer/Xcode/Products/*", .developerJunk,
-                risk: .rebuildCost),
+                risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
                 "Xcode documentation cache", "~/Library/Developer/Xcode/DocumentationCache/*", .developerJunk,
-                risk: .rebuildCost),
+                risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
                 "Xcode module cache", "~/Library/Developer/Xcode/ModuleCache.noindex/*", .developerJunk,
-                risk: .rebuildCost),
+                risk: .rebuildCost, requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
                 "Xcode cache", "~/Library/Caches/com.apple.dt.Xcode/*", .developerJunk, risk: .rebuildCost,
                 requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
                 "Simulator caches", "~/Library/Developer/CoreSimulator/Caches/*", .developerJunk,
-                risk: .rebuildCost),
+                risk: .rebuildCost,
+                requiresQuit: ["com.apple.dt.Xcode", "com.apple.iphonesimulator"]),
             CleanupRule(
                 "Simulator temp files", "~/Library/Developer/CoreSimulator/Devices/*/data/tmp/*",
-                .developerJunk),
+                .developerJunk,
+                requiresQuit: ["com.apple.dt.Xcode", "com.apple.iphonesimulator"]),
             CleanupRule(
-                "Interface Builder cache", "~/Library/Developer/Xcode/UserData/IB Support/*", .developerJunk),
+                "Interface Builder cache", "~/Library/Developer/Xcode/UserData/IB Support/*", .developerJunk,
+                requiresQuit: ["com.apple.dt.Xcode"]),
             CleanupRule(
                 "Android Studio cache", "~/Library/Caches/Google/AndroidStudio*/*", .developerJunk,
                 risk: .rebuildCost),
@@ -466,7 +472,6 @@ public enum CleanupCatalog {
             CleanupRule("Vagrant temporary files", "~/.vagrant.d/tmp/*", .developerJunk),
             CleanupRule("Jupyter runtime cache", "~/.jupyter/runtime/*", .developerJunk),
             CleanupRule("Oh My Zsh cache", "~/.oh-my-zsh/cache/*", .developerJunk),
-            CleanupRule("VS Code cache", "~/Library/Application Support/Code/Cache/*", .developerJunk),
             CleanupRule(
                 "VS Code cached data", "~/Library/Application Support/Code/CachedData/*", .developerJunk,
                 risk: .rebuildCost),
@@ -492,8 +497,6 @@ public enum CleanupCatalog {
             CleanupRule(
                 "Claude desktop cache", "~/Library/Caches/com.anthropic.claudefordesktop/*", .aiTools),
             CleanupRule("Claude sentry cache", "~/Library/Application Support/Claude/sentry/*", .aiTools),
-            CleanupRule(
-                "Claude pending uploads", "~/Library/Application Support/Claude/pending-uploads/*", .aiTools),
             CleanupRule("Claude logs", "~/Library/Logs/Claude/*", .aiTools),
             CleanupRule("OpenCode cache", "~/.cache/opencode/*", .aiTools),
             CleanupRule("OpenCode logs", "~/.local/share/opencode/log/*", .aiTools),
@@ -513,7 +516,9 @@ public enum CleanupCatalog {
             CleanupRule(
                 "Windsurf cached data", "~/Library/Application Support/Windsurf/CachedData/*", .aiTools,
                 risk: .rebuildCost, requiresQuit: ["com.exafunction.windsurf"]),
-            CleanupRule("Zed language server cache", "~/Library/Caches/Zed/*", .aiTools, risk: .rebuildCost),
+            CleanupRule(
+                "Zed language server cache", "~/Library/Caches/Zed/*", .aiTools,
+                risk: .rebuildCost, requiresQuit: ["dev.zed.Zed"]),
         ]
     }
 

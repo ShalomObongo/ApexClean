@@ -23,6 +23,8 @@ public final class GuardedDirectoryLister {
     private var queue: DispatchQueue
     private var workerIndex = 0
     private var abandoned: [String] = []
+    private var circuitOpen = false
+    private static let maximumAbandonedWorkers = 24
 
     /// Long enough for a cold directory with many thousands of entries on a
     /// slow disk, short enough that a wedge costs a visible pause rather than
@@ -50,6 +52,11 @@ public final class GuardedDirectoryLister {
         let semaphore = DispatchSemaphore(value: 0)
 
         lock.lock()
+        if circuitOpen {
+            if abandoned.count < Self.maximumAbandonedWorkers { abandoned.append(url.path) }
+            lock.unlock()
+            return nil
+        }
         let worker = queue
         lock.unlock()
 
@@ -73,15 +80,22 @@ public final class GuardedDirectoryLister {
 
     private func replaceWorker(after path: String) {
         lock.lock()
+        guard workerIndex < Self.maximumAbandonedWorkers else {
+            circuitOpen = true
+            lock.unlock()
+            return
+        }
         workerIndex += 1
         queue = DispatchQueue(label: "fit.apexclean.lister.\(workerIndex)", qos: .userInitiated)
         // Only the first few are worth reporting; a hundred names is not a
         // message, it is a wall.
-        if abandoned.count < 24 { abandoned.append(path) }
+        if abandoned.count < Self.maximumAbandonedWorkers { abandoned.append(path) }
         lock.unlock()
     }
 
-    private final class ResultBox {
+    /// The lock is the synchronization boundary for the value shared with the
+    /// disposable worker queue.
+    private final class ResultBox: @unchecked Sendable {
         private let lock = NSLock()
         private var value: [URL]?
 

@@ -32,7 +32,7 @@ final class GuardedTests: XCTestCase {
 
     func testPropagatesOptionalResults() {
         let value: String?? = Guarded.run(budget: 5) { String?.none }
-        XCTAssertNotNil(value, "the outer optional means 'timed out', not 'nil result'")
+        XCTAssertNotNil(value as Any?, "the outer optional means 'timed out', not 'nil result'")
         XCTAssertNil(value ?? "unexpected")
     }
 }

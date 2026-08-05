@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 
-public struct CPUVitals: Equatable {
+public struct CPUVitals: Equatable, Sendable {
     public var usage: Double = 0
     public var user: Double = 0
     public var system: Double = 0

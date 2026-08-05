@@ -71,7 +71,7 @@ struct PrivacyInviteCard: View {
                             grant()
                         }
                         ApexButton(title: "Settings", kind: .quiet, size: .compact) {
-                            PrivacyAccess.openPrivacySettings()
+                            PrivacyAccess.openFilesAndFoldersSettings()
                         }
                     }
                 }
@@ -86,13 +86,13 @@ struct PrivacyInviteCard: View {
         // a consent dialog is an expected part of the interaction.
         Task {
             let granted = await Task.detached(priority: .userInitiated) {
-                scopes.allSatisfy { PrivacyAccess.isReadable($0) }
+                scopes.map { PrivacyAccess.isReadable($0) }.allSatisfy { $0 }
             }.value
 
             await MainActor.run {
                 checking = false
                 withAnimation(Motion.enter) { isEnabled = granted }
-                if !granted { PrivacyAccess.openPrivacySettings() }
+                if !granted { PrivacyAccess.openFilesAndFoldersSettings() }
                 if granted { onEnable() }
             }
         }

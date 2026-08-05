@@ -161,7 +161,8 @@ struct OnboardingView: View {
                         PermissionRow(
                             permission: permission,
                             state: model.state(of: permission),
-                            isPending: model.pending == permission
+                            isPending: model.pending == permission,
+                            isLocked: model.pending != nil
                         ) {
                             model.grant(permission)
                         } onSettings: {
@@ -280,6 +281,7 @@ struct OnboardingView: View {
                 ApexButton(title: "Grant what I can be asked for", kind: .secondary) {
                     model.grantAllRequestable()
                 }
+                .disabled(model.pending != nil)
             }
 
             ApexButton(
@@ -289,6 +291,7 @@ struct OnboardingView: View {
             ) {
                 model.advance()
             }
+            .disabled(model.pending != nil)
         }
         .padding(.horizontal, 40)
         .padding(.top, 18)
@@ -298,6 +301,8 @@ struct OnboardingView: View {
                     .padding(.leading, 40)
                     .offset(y: -26)
                     .opacity(model.isFirstStep ? 1 : 0)
+                    .allowsHitTesting(model.isFirstStep)
+                    .accessibilityHidden(!model.isFirstStep)
             }
         }
     }
@@ -347,6 +352,7 @@ private struct PermissionRow: View {
     let permission: Permission
     let state: PermissionState
     let isPending: Bool
+    let isLocked: Bool
     var onGrant: () -> Void
     var onSettings: () -> Void
 
@@ -406,6 +412,7 @@ private struct PermissionRow: View {
                             isLoading: isPending,
                             action: onGrant
                         )
+                        .disabled(isLocked)
                     }
                 }
                 .fixedSize()

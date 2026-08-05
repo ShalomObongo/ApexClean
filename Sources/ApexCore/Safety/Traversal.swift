@@ -52,7 +52,7 @@ public enum Traversal {
         }
 
         public func admits(_ url: URL) -> Bool {
-            guard let rootVolume else { return true }
+            guard let rootVolume else { return false }
             guard let volume = Traversal.volumeIdentifier(of: url) else { return false }
             return volume.isEqual(rootVolume)
         }

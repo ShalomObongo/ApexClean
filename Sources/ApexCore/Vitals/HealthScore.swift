@@ -5,8 +5,8 @@ import Foundation
 /// The score is deliberately conservative and always explains itself: every
 /// point deducted is attributable to a named, observable factor. It never
 /// invents urgency to justify running a cleanup.
-public struct HealthScore: Equatable {
-    public struct Factor: Equatable, Identifiable {
+public struct HealthScore: Equatable, Sendable {
+    public struct Factor: Equatable, Identifiable, Sendable {
         public var id: String { name }
         public var name: String
         public var deduction: Double
@@ -25,7 +25,7 @@ public struct HealthScore: Equatable {
         }
     }
 
-    public enum Band: String {
+    public enum Band: String, Sendable {
         case excellent = "Excellent"
         case good = "Good"
         case fair = "Fair"

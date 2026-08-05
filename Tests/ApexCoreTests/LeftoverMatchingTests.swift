@@ -32,7 +32,10 @@ final class LeftoverMatchingTests: XCTestCase {
     func testRejectsMalformedBundleIdentifiers() {
         // A bundle id containing glob metacharacters or separators must never
         // reach a `find -name` style pattern.
-        for identifier in ["", "app", "com", "a.b", "com.example/*", "com.*", "../etc"] {
+        for identifier in [
+            "", "app", "com", "a.b", "com.example/*", "com.*", "../etc",
+            "com..example", "com.example_", "com.-example.app", "com.example-.app",
+        ] {
             XCTAssertFalse(
                 LeftoverFinder.isReverseDNS(identifier),
                 "\(identifier) must not be treated as a usable bundle id"
@@ -101,8 +104,23 @@ final class LeftoverMatchingTests: XCTestCase {
     /// it is just the user's decision rather than the app's.
     func testOnlyStrongMatchesArePreselectable() {
         XCTAssertTrue(Leftover.Confidence.bundleIdentifier.isSafeToPreselect)
-        XCTAssertTrue(Leftover.Confidence.exactName.isSafeToPreselect)
+        XCTAssertFalse(Leftover.Confidence.exactName.isSafeToPreselect)
         XCTAssertFalse(Leftover.Confidence.derivedName.isSafeToPreselect)
+    }
+
+    func testAppControlledNamesCannotEscapeAPathComponent() {
+        for name in [
+            "", ".", "..", "../Library", "Thing/../../Documents", "Thing\\..\\Documents",
+            "bad\0name",
+        ] {
+            XCTAssertFalse(
+                LeftoverFinder.isSafePathComponent(name),
+                "\(name.debugDescription) must not become a filesystem candidate"
+            )
+            XCTAssertTrue(LeftoverFinder.nameVariants(name).isEmpty)
+        }
+        XCTAssertTrue(LeftoverFinder.isSafePathComponent("Microsoft Word"))
+        XCTAssertTrue(LeftoverFinder.isSafePathComponent("Zed Nightly"))
     }
 
     /// Confidence defaults to the cautious value, so a future call site that

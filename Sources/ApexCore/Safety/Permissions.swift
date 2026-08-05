@@ -192,7 +192,15 @@ public enum Permissions {
         let url = Bundle.main.bundleURL
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, _ in
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { application, error in
+            guard application != nil, error == nil else {
+                if let error {
+                    Log.safety.error(
+                        "Could not relaunch ApexClean: \(error.localizedDescription, privacy: .public)"
+                    )
+                }
+                return
+            }
             DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }

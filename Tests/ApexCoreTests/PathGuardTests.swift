@@ -169,6 +169,29 @@ final class PathGuardTests: XCTestCase {
                 "Must refuse EDR scratch path \(path)"
             )
         }
+
+        func testResolvedDataVolumeAliasCannotBypassPersonalDataProtection() throws {
+            let temporary = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            try FileManager.default.createDirectory(at: temporary, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: temporary) }
+
+            let dataDocuments = URL(
+                fileURLWithPath: "/System/Volumes/Data\(home.path)/Documents",
+                isDirectory: true
+            )
+            guard FileManager.default.fileExists(atPath: dataDocuments.path) else {
+                throw XCTSkip("The APFS Data-volume alias is unavailable on this host")
+            }
+
+            let link = temporary.appendingPathComponent("cache-link")
+            try FileManager.default.createSymbolicLink(at: link, withDestinationURL: dataDocuments)
+            let smuggled = link.appendingPathComponent("important.txt")
+            XCTAssertFalse(
+                PathGuard.evaluate(smuggled).isAllowed,
+                "A parent symlink to the Data-volume alias of Documents must be refused"
+            )
+        }
     }
 
     // MARK: - Permissions
@@ -239,5 +262,19 @@ final class PathGuardTests: XCTestCase {
             path: URL(fileURLWithPath: "/System/Applications/Music.app")
         )
         XCTAssertFalse(verdict.isAllowed)
+    }
+
+    func testRequiresOfficialUninstallerForProtectedVendors() {
+        for bundleID in [
+            "com.crowdstrike.falcon", "com.sentinelone.agent", "com.eset.endpoint",
+            "com.jamf.management", "com.paloaltonetworks.globalprotect.client",
+            "com.cisco.secureclient",
+        ] {
+            let verdict = PathGuard.canUninstall(
+                bundleID: bundleID,
+                path: URL(fileURLWithPath: "/Applications/Vendor.app")
+            )
+            XCTAssertFalse(verdict.isAllowed, "\(bundleID) must use its official uninstaller")
+        }
     }
 }

@@ -9,6 +9,7 @@ struct SpaceLensView: View {
     /// `ObservableObject` reached through `@EnvironmentObject` publishes
     /// nothing to this view, so the model must be observed here.
     @ObservedObject var model: SpaceModel
+    @State private var trashRequest: TrashRequest?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -23,6 +24,15 @@ struct SpaceLensView: View {
                 stalledState(stalled)
             } else if model.root == nil {
                 emptyState
+            } else if let root = model.root, root.children.isEmpty {
+                StateView(
+                    kind: .empty(
+                        symbol: "folder",
+                        title: "This folder is empty",
+                        message: "\(Glob.display(root.url.path)) contains no measurable items."
+                    ),
+                    action: ("Choose another folder", "folder", { model.chooseFolder() })
+                )
             } else {
                 HStack(spacing: 0) {
                     treemapPane
@@ -30,6 +40,22 @@ struct SpaceLensView: View {
                     detailPane.frame(width: 288)
                 }
             }
+        }
+        .alert(
+            "Move to Trash?",
+            isPresented: Binding(
+                get: { trashRequest != nil },
+                set: { if !$0 { trashRequest = nil } }
+            ),
+            presenting: trashRequest
+        ) { request in
+            Button("Cancel", role: .cancel) { trashRequest = nil }
+            Button("Move to Trash", role: .destructive) {
+                trashRequest = nil
+                request.action()
+            }
+        } message: { request in
+            Text("\(request.title) · \(request.detail). You can restore it from the Trash.")
         }
     }
 
@@ -65,6 +91,7 @@ struct SpaceLensView: View {
                 ApexButton(title: "Choose folder…", symbol: "folder", kind: .secondary) {
                     model.chooseFolder()
                 }
+                .disabled(model.isScanning)
                 if model.isScanning {
                     ApexButton(title: "Stop", symbol: "stop.fill", kind: .secondary) { model.cancel() }
                 } else {
@@ -193,7 +220,7 @@ struct SpaceLensView: View {
                             }
                             Divider()
                             Button("Move to Trash", role: .destructive) {
-                                model.moveToTrash(tile.node)
+                                requestTrash(tile.node)
                             }
                         }
                     }
@@ -379,10 +406,16 @@ struct SpaceLensView: View {
             }
 
             VStack(spacing: 7) {
-                ApexButton(title: "Reveal in Finder", symbol: "arrow.up.forward.app", kind: .secondary) {
-                    model.revealInFinder(node)
+                if !node.isSynthetic {
+                    ApexButton(
+                        title: "Reveal in Finder",
+                        symbol: "arrow.up.forward.app",
+                        kind: .secondary
+                    ) {
+                        model.revealInFinder(node)
+                    }
+                    .frame(maxWidth: .infinity)
                 }
-                .frame(maxWidth: .infinity)
 
                 if node.hasChildren {
                     ApexButton(title: "Open here", symbol: "arrow.down.forward", kind: .secondary) {
@@ -391,16 +424,18 @@ struct SpaceLensView: View {
                     .frame(maxWidth: .infinity)
                 }
 
-                ApexButton(
-                    title: model.removing.contains(node.id) ? "Moving to Trash" : "Move to Trash",
-                    symbol: "trash",
-                    kind: .destructive,
-                    isLoading: model.removing.contains(node.id)
-                ) {
-                    model.moveToTrash(node)
+                if !node.isSynthetic {
+                    ApexButton(
+                        title: model.removing.contains(node.id) ? "Moving to Trash" : "Move to Trash",
+                        symbol: "trash",
+                        kind: .destructive,
+                        isLoading: model.removing.contains(node.id)
+                    ) {
+                        requestTrash(node)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .disabled(model.removing.contains(node.id))
                 }
-                .frame(maxWidth: .infinity)
-                .disabled(model.removing.contains(node.id))
             }
 
             if let error = model.removalError {
@@ -476,16 +511,53 @@ struct SpaceLensView: View {
                     Text(Bytes.format(match.bytes))
                         .font(Typo.numeric(10.5))
                         .foregroundStyle(Palette.inkTertiary(scheme))
+                    IconButton(
+                        symbol: "arrow.up.forward.app",
+                        help: "Reveal \(match.url.lastPathComponent) in Finder"
+                    ) {
+                        NSWorkspace.shared.activateFileViewerSelecting([match.url])
+                    }
+                    IconButton(
+                        symbol: "trash",
+                        help: "Move \(match.url.lastPathComponent) to Trash",
+                        tint: Palette.alert
+                    ) {
+                        requestTrash(match)
+                    }
                 }
                 .contextMenu {
                     Button("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([match.url])
                     }
-                    Button("Move to Trash", role: .destructive) { model.trashLargeFile(match) }
+                    Button("Move to Trash", role: .destructive) { requestTrash(match) }
                 }
             }
         }
     }
+
+    private func requestTrash(_ node: SpaceNode) {
+        guard !node.isSynthetic else { return }
+        trashRequest = TrashRequest(
+            title: node.name,
+            detail: Bytes.format(node.bytes),
+            action: { model.moveToTrash(node) }
+        )
+    }
+
+    private func requestTrash(_ match: LargeFileFinder.Match) {
+        trashRequest = TrashRequest(
+            title: match.url.lastPathComponent,
+            detail: Bytes.format(match.bytes),
+            action: { model.trashLargeFile(match) }
+        )
+    }
+}
+
+private struct TrashRequest: Identifiable {
+    let id = UUID()
+    let title: String
+    let detail: String
+    let action: () -> Void
 }
 
 /// Palette rotation so adjacent tiles are distinguishable without encoding

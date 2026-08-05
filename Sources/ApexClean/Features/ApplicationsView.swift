@@ -126,10 +126,14 @@ struct ApplicationsView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
             }
             Spacer()
             if model.tab == .installed {
-                Picker("", selection: Binding(get: { model.sort }, set: { model.sort = $0 })) {
+                Picker(
+                    "Sort applications",
+                    selection: Binding(get: { model.sort }, set: { model.sort = $0 })
+                ) {
                     ForEach(ApplicationsModel.Sort.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.menu)
@@ -355,7 +359,19 @@ struct ApplicationsView: View {
     private var startupList: some View {
         ScrollView {
             VStack(spacing: 8) {
-                if !model.orphanedStartupItems.isEmpty {
+                if model.startupItems.isEmpty {
+                    StateView(
+                        kind: model.isLoading
+                            ? .working("Reading launch agents…")
+                            : .empty(
+                                symbol: "bolt",
+                                title: "No startup items found",
+                                message:
+                                    "No launch agents or daemons were found in the standard macOS locations."
+                            )
+                    )
+                    .frame(minHeight: 480)
+                } else if !model.orphanedStartupItems.isEmpty {
                     ApexCard(padding: 14, accent: Palette.caution) {
                         HStack(spacing: 12) {
                             GlyphTile(
@@ -378,7 +394,11 @@ struct ApplicationsView: View {
                 }
 
                 ForEach(model.startupItems) { item in
-                    StartupRow(item: item, isRemoving: model.removingStartupItems.contains(item.id)) {
+                    StartupRow(
+                        item: item,
+                        isRemoving: model.removingStartupItems.contains(item.id),
+                        failure: model.startupRemovalFailures[item.id]
+                    ) {
                         model.removeStartupItem(item)
                     }
                 }
@@ -474,6 +494,7 @@ private struct AppRow: View {
 private struct StartupRow: View {
     let item: StartupItem
     let isRemoving: Bool
+    let failure: String?
     let onRemove: () -> Void
 
     @Environment(\.colorScheme) private var scheme
@@ -489,7 +510,7 @@ private struct StartupRow: View {
                     size: 30
                 )
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(item.displayName)
                             .font(Typo.cardTitle)
@@ -502,6 +523,12 @@ private struct StartupRow: View {
                         .foregroundStyle(Palette.inkTertiary(scheme))
                         .lineLimit(1)
                         .truncationMode(.middle)
+                    if let failure {
+                        Text(failure)
+                            .font(Typo.caption)
+                            .foregroundStyle(Palette.caution)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
 
                 Spacer(minLength: 8)

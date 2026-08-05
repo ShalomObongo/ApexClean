@@ -25,6 +25,17 @@ final class ShellTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 5)
     }
 
+    func testDetailedTimeoutEscalatesPastIgnoredTerminateSignal() {
+        let started = Date()
+        let result = Shell.runDetailed(
+            "/bin/sh",
+            ["-c", "trap '' TERM; while :; do sleep 1; done"],
+            timeout: 0.3
+        )
+        XCTAssertTrue(result.timedOut)
+        XCTAssertLessThan(Date().timeIntervalSince(started), 4)
+    }
+
     func testMissingExecutableReturnsNil() {
         XCTAssertNil(Shell.run("/definitely/not/a/binary", []))
     }

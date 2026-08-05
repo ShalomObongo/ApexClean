@@ -1,4 +1,4 @@
-import ApexCore
+@preconcurrency import ApexCore
 import SwiftUI
 
 /// Drives scanning and selection for both Smart Care and Cleanup.
@@ -138,7 +138,7 @@ final class CleanupModel: ObservableObject {
     // MARK: - Scanning
 
     func scan() {
-        guard stage != .scanning else { return }
+        guard stage != .scanning, stage != .cleaning else { return }
         scanner?.cancel()
         scanGeneration &+= 1
         let generation = scanGeneration
@@ -147,6 +147,7 @@ final class CleanupModel: ObservableObject {
         report = CleanupReport()
         selection = []
         lastOutcome = nil
+        blockedAtCleanTime = 0
         progress = .init(completed: 0, total: 1, currentTitle: "Preparing", bytesFound: 0)
 
         let scanner = CleanupScanner(includesProtectedLocations: includesProtectedLocations)
@@ -155,8 +156,9 @@ final class CleanupModel: ObservableObject {
         // NSWorkspace is main-actor only, so the snapshot is taken here and
         // handed to the background scan rather than queried from it.
         let running = RunningApps.snapshot()
+        let model = self
 
-        scanQueue.async { [weak self] in
+        scanQueue.async {
             // The scanner emits an update per rule — several hundred over a
             // couple of seconds. Forwarding every one would post a @Published
             // change (and a full SwiftUI re-render, with animated numeric
@@ -172,14 +174,14 @@ final class CleanupModel: ObservableObject {
                 guard isFinal || now.timeIntervalSince(lastPublish) >= throttle else { return }
                 lastPublish = now
                 DispatchQueue.main.async {
-                    guard let self, self.scanGeneration == generation else { return }
-                    self.progress = update
+                    guard model.scanGeneration == generation else { return }
+                    model.progress = update
                 }
             }
 
             DispatchQueue.main.async {
-                guard let self, self.scanGeneration == generation else { return }
-                self.finishScan(result)
+                guard model.scanGeneration == generation else { return }
+                model.finishScan(result)
             }
         }
     }
@@ -205,13 +207,15 @@ final class CleanupModel: ObservableObject {
     /// Measured off the main thread — the Trash can hold a very large tree, and
     /// sizing it is exactly the kind of work that must never block the UI.
     private func refreshTrashSize() {
-        scanQueue.async { [weak self] in
+        let model = self
+        scanQueue.async {
             let state = Remover.inspectTrash()
-            DispatchQueue.main.async { self?.trashState = state }
+            DispatchQueue.main.async { model.trashState = state }
         }
     }
 
     func cancelScan() {
+        guard stage == .scanning else { return }
         scanner?.cancel()
         scanGeneration &+= 1
         stage = report.isEmpty ? .idle : .reviewing
@@ -220,7 +224,7 @@ final class CleanupModel: ObservableObject {
     // MARK: - Selection
 
     func toggle(_ finding: CleanupFinding) {
-        guard !finding.isBlocked else { return }
+        guard stage == .reviewing, !finding.isBlocked else { return }
         if selection.contains(finding.id) {
             selection.remove(finding.id)
         } else {
@@ -229,6 +233,7 @@ final class CleanupModel: ObservableObject {
     }
 
     func toggle(group: CleanupGroup) {
+        guard stage == .reviewing else { return }
         let state = selectionState(for: group)
         let ids = group.findings.filter { !$0.isBlocked }.map(\.id)
         if state.isOn {
@@ -239,12 +244,17 @@ final class CleanupModel: ObservableObject {
     }
 
     func selectAll() {
+        guard stage == .reviewing else { return }
         selection = Set(report.groups.flatMap(\.findings).filter { !$0.isBlocked }.map(\.id))
     }
 
-    func selectNone() { selection = [] }
+    func selectNone() {
+        guard stage == .reviewing else { return }
+        selection = []
+    }
 
     func selectRecommended() {
+        guard stage == .reviewing else { return }
         selection = Set(
             report.groups
                 .filter { $0.category.isDefaultSelected }
@@ -257,6 +267,7 @@ final class CleanupModel: ObservableObject {
     // MARK: - Removal
 
     func clean() {
+        guard stage == .reviewing else { return }
         let selection = selectedFindings
         guard !selection.isEmpty else { return }
 
@@ -289,9 +300,11 @@ final class CleanupModel: ObservableObject {
         let permanent = removalIsPermanent
         let historyRef = history
         let emptiesTrash = emptiesTrashAfterCleaning
+        let removalSizes = knownSizes
+        let model = self
 
-        scanQueue.async { [weak self] in
-            let remover = Remover(history: historyRef)
+        scanQueue.async {
+            let remover = Remover()
             var outcome = remover.remove(
                 urls,
                 disposal: permanent ? .delete : .trash,
@@ -302,7 +315,7 @@ final class CleanupModel: ObservableObject {
                 // the one moment those guards matter most, since there is no
                 // Trash to recover from.
                 allowUserRoots: false,
-                knownSizes: knownSizes
+                knownSizes: removalSizes
             )
             // Deliberately last. Emptying first would leave this pass's own
             // removals sitting in a Trash the user asked to be empty, which is
@@ -312,13 +325,28 @@ final class CleanupModel: ObservableObject {
                 // again — the space they occupy is reclaimed once, not twice.
                 let emptied = remover.emptyTrash(alreadyCounted: outcome.trashedLocations)
                 outcome.removed += emptied.removed
+                outcome.refused += emptied.refused
                 outcome.failed += emptied.failed
-                outcome.bytesReclaimed += emptied.bytesReclaimed
+                outcome.bytesProcessed += emptied.bytesProcessed
+                outcome.bytesFreed += emptied.bytesFreed
                 outcome.filesRemoved += emptied.filesRemoved
+                outcome.historyEntries += emptied.historyEntries
+                if emptied.failed.isEmpty, emptied.refused.isEmpty {
+                    outcome.historyEntries = outcome.historyEntries.map { entry in
+                        var final = entry
+                        final.recoverable = false
+                        return final
+                    }
+                    outcome.trashed = 0
+                }
             }
-            let session = historyRef.commitSession(title: "Cleanup")
+            let session = historyRef.commitSession(
+                title: "Cleanup",
+                entries: outcome.historyEntries
+            )
+            let finalOutcome = outcome
             DispatchQueue.main.async {
-                self?.finishClean(outcome, session: session)
+                model.finishClean(finalOutcome, session: session)
             }
         }
     }
@@ -352,6 +380,7 @@ final class CleanupModel: ObservableObject {
     }
 
     func reset() {
+        guard stage != .cleaning else { return }
         withAnimation(Motion.stage) {
             stage = report.isEmpty ? .idle : .reviewing
             lastOutcome = nil

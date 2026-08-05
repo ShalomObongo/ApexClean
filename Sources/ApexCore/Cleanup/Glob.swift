@@ -1,32 +1,76 @@
+import Darwin
 import Foundation
 
-/// Thin wrapper over POSIX `glob(3)`.
-///
-/// Shell-style patterns are the natural way to express "every profile directory
-/// under Chrome", and re-implementing that matching in Swift would be a source
-/// of subtle over-matching bugs in code whose whole job is to delete things.
+/// Bounded shell-style path expansion that never follows directory symlinks.
 public enum Glob {
     public static func expand(_ pattern: String, limit: Int = 4_000) -> [URL] {
-        var results = glob_t()
-        defer { globfree(&results) }
-
-        let flags = GLOB_TILDE | GLOB_NOSORT | GLOB_MARK
-        guard glob(pattern, flags, nil, &results) == 0 else { return [] }
-
-        let count = min(Int(results.gl_pathc), limit)
-        guard count > 0, let paths = results.gl_pathv else { return [] }
-
-        var urls: [URL] = []
-        urls.reserveCapacity(count)
-        for index in 0..<count {
-            guard let raw = paths[index] else { continue }
-            var path = String(cString: raw)
-            // GLOB_MARK appends "/" to directories; URL handles that, but the
-            // trailing slash makes string comparisons in PathGuard noisier.
-            while path.count > 1, path.hasSuffix("/") { path.removeLast() }
-            urls.append(URL(fileURLWithPath: path))
+        guard limit > 0 else { return [] }
+        var expanded = pattern.expandingTilde
+        if expanded == "/var" || expanded.hasPrefix("/var/") {
+            expanded = "/private" + expanded
+        } else if expanded == "/tmp" || expanded.hasPrefix("/tmp/") {
+            expanded = "/private" + expanded
         }
-        return urls
+        guard expanded.hasPrefix("/") else { return [] }
+
+        let components = expanded.split(separator: "/", omittingEmptySubsequences: true)
+            .map(String.init)
+        var candidates = [URL(fileURLWithPath: "/", isDirectory: true)]
+
+        for (index, component) in components.enumerated() {
+            let isFinal = index == components.count - 1
+            let hasMagic = component.contains { "*?[".contains($0) }
+            var next: [URL] = []
+
+            for parent in candidates.sorted(by: { $0.path < $1.path }) {
+                if hasMagic {
+                    guard
+                        let children = try? FileManager.default.contentsOfDirectory(
+                            at: parent,
+                            includingPropertiesForKeys: [
+                                .isDirectoryKey, .isSymbolicLinkKey,
+                            ],
+                            options: []
+                        )
+                    else { continue }
+
+                    let sorted = children.sorted { $0.lastPathComponent < $1.lastPathComponent }
+                    for child in sorted {
+                        let name = child.lastPathComponent
+                        if name.hasPrefix("."), !component.hasPrefix(".") { continue }
+                        guard fnmatch(component, name, 0) == 0 else { continue }
+                        guard isFinal || mayDescend(into: child) else { continue }
+                        next.append(child)
+                        if next.count >= limit { break }
+                    }
+                } else {
+                    let child = parent.appendingPathComponent(component)
+                    guard FileManager.default.fileExists(atPath: child.path) else { continue }
+                    guard isFinal || mayDescend(into: child) else { continue }
+                    next.append(child)
+                }
+                if next.count >= limit { break }
+            }
+
+            candidates = next
+            if candidates.isEmpty { break }
+            if candidates.count >= limit {
+                Log.engine.notice(
+                    "Glob expansion reached its path limit: \(pattern, privacy: .public)"
+                )
+            }
+        }
+
+        return Array(candidates.prefix(limit))
+    }
+
+    private static func mayDescend(into url: URL) -> Bool {
+        guard
+            let values = try? url.resourceValues(
+                forKeys: [.isDirectoryKey, .isSymbolicLinkKey]
+            )
+        else { return false }
+        return values.isDirectory == true && values.isSymbolicLink != true
     }
 
     /// Expands `~` without touching the filesystem, for patterns we want to

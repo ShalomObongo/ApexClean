@@ -46,13 +46,13 @@ enum Palette {
     }
 
     static func inkTertiary(_ scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(hex: 0x849296) : Color(hex: 0x7D878C)
+        scheme == .dark ? Color(hex: 0xA2AEB1) : Color(hex: 0x566570)
     }
 
     // MARK: - Compatibility accents
 
     static let jade = Color.adaptive(light: 0x426E5A, dark: 0x9BC7B0)
-    static let cyan = Color.adaptive(light: 0x4F7180, dark: 0x9BBAC5)
+    static let cyan = Color.adaptive(light: 0x3F6271, dark: 0x9BBAC5)
     static let action = brick
 
     // MARK: - Semantics

@@ -32,7 +32,7 @@ enum Destination: String, CaseIterable, Identifiable {
         case .maintenance: "Bounded, explainable tasks"
         case .spaceLens: "See where storage went"
         case .vitals: "Live system condition"
-        case .history: "Everything ApexClean touched"
+        case .history: "Recent local operations"
         }
     }
 
@@ -86,20 +86,19 @@ final class AppState: ObservableObject {
 
     lazy var cleanup = CleanupModel(history: history)
     lazy var applications = ApplicationsModel(history: history)
-    lazy var maintenance = MaintenanceModel()
+    lazy var maintenance = MaintenanceModel(history: history)
     lazy var space = SpaceModel(history: history)
 
     @Published var lastCleanSummary: OperationLog.Session?
-    @Published var totalReclaimedEver: Int64 = 0
+    @Published var totalHandledEver: Int64 = 0
 
     /// Shown over everything until setup is finished or skipped.
     @Published var isOnboarding: Bool
     let onboarding = OnboardingModel()
 
     init() {
-        isOnboarding = !Settings.hasCompletedSetup
-        totalReclaimedEver = history.totalReclaimed()
-        lastCleanSummary = history.recentSessions(limit: 1).first
+        isOnboarding = !Settings.hasCompletedSetup || Settings.setupSignatureChanged
+        refreshHistory()
 
         // `self` is bound before the Task, not inside it. Swift 5.9 — which is
         // what the macOS 14 toolchain ships — rejects reading a weak binding
@@ -122,6 +121,13 @@ final class AppState: ObservableObject {
             Task { @MainActor in
                 self.applyPrivacyPreference()
             }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: OperationLog.didChange, object: history, queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in self.refreshHistory() }
         }
 
         applyPrivacyPreference()
@@ -150,11 +156,26 @@ final class AppState: ObservableObject {
     }
 
     func refreshHistory() {
-        totalReclaimedEver = history.totalReclaimed()
-        lastCleanSummary = history.recentSessions(limit: 1).first
+        let history = history
+        Task.detached(priority: .utility) {
+            let total = history.totalProcessed()
+            let latest = history.recentSessions(limit: 1).first
+            await MainActor.run {
+                self.totalHandledEver = total
+                self.lastCleanSummary = latest
+            }
+        }
     }
 
     func go(to destination: Destination) {
         withAnimation(Motion.enter) { self.destination = destination }
+    }
+
+    var hasDestructiveWorkInFlight: Bool {
+        cleanup.stage == .cleaning
+            || applications.isUninstalling
+            || !applications.removingStartupItems.isEmpty
+            || !space.removing.isEmpty
+            || maintenance.isRunning
     }
 }

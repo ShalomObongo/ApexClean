@@ -1,31 +1,48 @@
 import AppKit
+import Darwin
 import Foundation
 
+private struct InodeKey: Hashable, Sendable {
+    let device: dev_t
+    let inode: ino_t
+
+    init?(_ url: URL) {
+        var status = stat()
+        guard lstat(url.path, &status) == 0 else { return nil }
+        device = status.st_dev
+        inode = status.st_ino
+    }
+}
+
 /// One node in the on-disk size tree.
-public final class SpaceNode: Identifiable, Hashable {
+public final class SpaceNode: Identifiable, Hashable, @unchecked Sendable {
     public let id: String
     public let url: URL
     public let name: String
     public var bytes: Int64
     public let isDirectory: Bool
     public let modified: Date?
+    public let isSynthetic: Bool
     public private(set) var children: [SpaceNode]
     public weak var parent: SpaceNode?
 
     init(
+        id: String? = nil,
         url: URL,
         name: String,
         bytes: Int64,
         isDirectory: Bool,
         modified: Date?,
-        children: [SpaceNode] = []
+        children: [SpaceNode] = [],
+        isSynthetic: Bool = false
     ) {
-        self.id = url.path
+        self.id = id ?? url.path
         self.url = url
         self.name = name
         self.bytes = bytes
         self.isDirectory = isDirectory
         self.modified = modified
+        self.isSynthetic = isSynthetic
         self.children = children
         for child in children { child.parent = self }
     }
@@ -66,6 +83,7 @@ public final class SpaceNode: Identifiable, Hashable {
     }
 
     public var fileKind: String {
+        if isSynthetic { return "Aggregate" }
         if isDirectory { return "Folder" }
         let ext = url.pathExtension.lowercased()
         return ext.isEmpty ? "File" : ext.uppercased()
@@ -80,8 +98,8 @@ public final class SpaceNode: Identifiable, Hashable {
 /// Depth is bounded and children below a share threshold are folded into a
 /// single "smaller items" node, because a treemap with ten thousand
 /// one-pixel rectangles is noise, not information.
-public final class SpaceScanner {
-    public struct Progress {
+public final class SpaceScanner: @unchecked Sendable {
+    public struct Progress: Sendable {
         public var scannedPaths: Int
         public var currentPath: String
         public var bytesSeen: Int64
@@ -102,6 +120,7 @@ public final class SpaceScanner {
     /// What the user asked to map, so an opaque root containing it can be
     /// ignored rather than blanking the whole scan.
     private var scanRoot: URL?
+    private var seenInodes: Set<InodeKey> = []
     private let lister = GuardedDirectoryLister()
     /// Paths a previous attempt proved unresponsive. Retrying without them is
     /// what turns a dead end into a recoverable one.
@@ -132,7 +151,7 @@ public final class SpaceScanner {
 
     /// Lets adjacent work (the large-file pass) keep the same heartbeat alive,
     /// so the watchdog does not mistake it for a stall.
-    public func noteProgress() { tick() }
+    public func noteProgress(_ path: String? = nil) { tick(path) }
 
     /// Monotonic counter of paths touched. Read from another thread to detect a
     /// stall.
@@ -165,10 +184,10 @@ public final class SpaceScanner {
         let resolvedRoot = root.standardizedFileURL.resolvingSymlinksInPath()
 
         lock.lock()
-        cancelled = false
         scanned = 0
         beats = 0
         inFlight = resolvedRoot.path
+        seenInodes = []
         lock.unlock()
         fence = Traversal.VolumeFence(root: resolvedRoot)
         scanRoot = resolvedRoot
@@ -215,7 +234,13 @@ public final class SpaceScanner {
         }
 
         guard values.isDirectory == true else {
-            let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+            let bytes: Int64
+            if let key = InodeKey(url), seenInodes.contains(key) {
+                bytes = 0
+            } else {
+                if let key = InodeKey(url) { seenInodes.insert(key) }
+                bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+            }
             return SpaceNode(url: url, name: name, bytes: bytes, isDirectory: false, modified: modified)
         }
 
@@ -287,12 +312,14 @@ public final class SpaceScanner {
         guard remainderBytes > 0, remainder.count > 1 else { return sorted }
 
         let folded = SpaceNode(
+            id: "synthetic:" + remainder.map(\.id).sorted().joined(separator: "|"),
             url: (kept.first?.url.deletingLastPathComponent() ?? URL(fileURLWithPath: "/"))
                 .appendingPathComponent("·smaller-items"),
             name: "\(remainder.count) smaller items",
             bytes: remainderBytes,
             isDirectory: true,
-            modified: nil
+            modified: nil,
+            isSynthetic: true
         )
         folded.adopt(remainder)
         return Array(kept) + [folded]
@@ -307,7 +334,7 @@ public final class SpaceScanner {
 
 /// Finds individually large files, which a treemap can bury inside a deep folder.
 public enum LargeFileFinder {
-    public struct Match: Identifiable, Hashable {
+    public struct Match: Identifiable, Hashable, Sendable {
         public var id: String { url.path }
         public let url: URL
         public let bytes: Int64
@@ -321,7 +348,7 @@ public enum LargeFileFinder {
         limit: Int = 200,
         includesProtectedLocations: Bool = false,
         skipping: Set<String> = [],
-        onVisit: () -> Void = {},
+        onVisit: (URL) -> Void = { _ in },
         isCancelled: () -> Bool = { false }
     ) -> [Match] {
         let keys: Set<URLResourceKey> = [
@@ -339,9 +366,10 @@ public enum LargeFileFinder {
 
         let fence = Traversal.VolumeFence(root: root)
         var matches: [Match] = []
+        var seenInodes: Set<InodeKey> = []
         for case let url as URL in enumerator {
             if isCancelled() { break }
-            onVisit()
+            onVisit(url)
 
             // The path-only fences run first, before anything touches the file.
             //
@@ -377,6 +405,9 @@ public enum LargeFileFinder {
             }
 
             guard values.isRegularFile == true else { continue }
+            if let key = InodeKey(url) {
+                guard seenInodes.insert(key).inserted else { continue }
+            }
             let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             guard bytes >= minimumBytes else { continue }
             matches.append(

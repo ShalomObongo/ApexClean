@@ -36,12 +36,13 @@ public enum FileSize {
     /// reports its size once per project. Deleting one copy then frees far less
     /// than promised. Mole keys the same set on `(st_dev, st_ino)`
     /// (`cmd/analyze/scanner.go:1069-1087`).
-    struct HardlinkSet {
+    final class HardlinkSet: @unchecked Sendable {
         private struct Key: Hashable {
             let device: dev_t
             let inode: ino_t
         }
 
+        private let lock = NSLock()
         private var seen = Set<Key>()
 
         /// True when this entry's bytes should be counted.
@@ -49,10 +50,12 @@ public enum FileSize {
         /// The link count comes from resource values that were already
         /// fetched, so the `lstat` is only paid for the small minority of
         /// files that can actually be reached twice.
-        mutating func admit(_ values: URLResourceValues, at url: URL) -> Bool {
+        func admit(_ values: URLResourceValues, at url: URL) -> Bool {
             guard let links = values.linkCount, links > 1 else { return true }
             var info = stat()
             guard lstat(url.path, &info) == 0 else { return true }
+            lock.lock()
+            defer { lock.unlock() }
             return seen.insert(Key(device: info.st_dev, inode: info.st_ino)).inserted
         }
     }
@@ -66,6 +69,14 @@ public enum FileSize {
     /// user-initiated stop feels immediate even inside a huge directory.
     public static func measure(
         _ url: URL,
+        isCancelled: () -> Bool = { false }
+    ) -> Measurement {
+        measure(url, hardlinks: HardlinkSet(), isCancelled: isCancelled)
+    }
+
+    static func measure(
+        _ url: URL,
+        hardlinks: HardlinkSet,
         isCancelled: () -> Bool = { false }
     ) -> Measurement {
         // The measured directory is itself the root here, so an opaque root that
@@ -82,7 +93,12 @@ public enum FileSize {
         }
 
         if !isDirectory.boolValue {
-            return Measurement(bytes: allocatedSize(of: url), fileCount: 1)
+            let values = try? url.resourceValues(forKeys: allocationKeys)
+            guard let values, hardlinks.admit(values, at: url) else { return Measurement() }
+            return Measurement(
+                bytes: Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0),
+                fileCount: 1
+            )
         }
 
         var result = Measurement()
@@ -101,7 +117,6 @@ public enum FileSize {
         // provider-backed store: both can block on a read that has no deadline,
         // and neither is space that removing this path would give back.
         let fence = Traversal.VolumeFence(root: url)
-        var seen = HardlinkSet()
         for case let child as URL in enumerator {
             if isCancelled() { break }
 
@@ -127,7 +142,7 @@ public enum FileSize {
             }
 
             if isChildDirectory { continue }
-            guard seen.admit(values, at: child) else { continue }
+            guard hardlinks.admit(values, at: child) else { continue }
             let size = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             result.bytes += size
             result.fileCount += 1
@@ -142,7 +157,7 @@ public enum FileSize {
     /// wait instead. `-s` for the total, `-k` because the output is KiB.
     private static func outsideMeasure(of url: URL, isCancelled: () -> Bool) -> Measurement {
         guard !isCancelled() else { return Measurement() }
-        let result = Shell.runDetailed("/usr/bin/du", ["-skx", url.path], timeout: 20)
+        let result = Shell.runDetailed("/usr/bin/du", ["-skx", url.path], timeout: 8)
         guard !result.timedOut,
             let field = result.output.split(separator: "\n").first?
                 .split(separator: "\t").first,

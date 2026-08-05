@@ -42,28 +42,23 @@ public enum Shell {
         }
 
         // Read on a background queue so a chatty child cannot deadlock on a full pipe.
-        var data = Data()
-        let lock = NSLock()
+        let data = LockedValue(Data())
         let reader = DispatchQueue(label: "fit.apexclean.shell.read")
         let done = DispatchSemaphore(value: 0)
         reader.async {
             let chunk = pipe.fileHandleForReading.readDataToEndOfFile()
-            lock.lock()
-            data = chunk
-            lock.unlock()
+            data.set(chunk)
             done.signal()
         }
 
         let deadline = DispatchTime.now() + timeout
         if done.wait(timeout: deadline) == .timedOut {
-            process.terminate()
+            terminate(process, pipe: pipe)
             _ = done.wait(timeout: .now() + 1)
         }
         _ = exited.wait(timeout: .now() + 1)
 
-        lock.lock()
-        defer { lock.unlock() }
-        return String(data: data, encoding: .utf8)
+        return String(data: data.get(), encoding: .utf8)
     }
 
     public static func exists(_ path: String) -> Bool {
@@ -125,29 +120,24 @@ public enum Shell {
             return Result(status: -1, output: error.localizedDescription, timedOut: false)
         }
 
-        var data = Data()
-        let lock = NSLock()
+        let data = LockedValue(Data())
         let reader = DispatchQueue(label: "fit.apexclean.shell.read")
         let done = DispatchSemaphore(value: 0)
         reader.async {
             let chunk = pipe.fileHandleForReading.readDataToEndOfFile()
-            lock.lock()
-            data = chunk
-            lock.unlock()
+            data.set(chunk)
             done.signal()
         }
 
         var timedOut = false
         if done.wait(timeout: .now() + timeout) == .timedOut {
             timedOut = true
-            process.terminate()
+            terminate(process, pipe: pipe)
             _ = done.wait(timeout: .now() + 2)
         }
         _ = exited.wait(timeout: .now() + 2)
 
-        lock.lock()
-        let output = String(data: data, encoding: .utf8) ?? ""
-        lock.unlock()
+        let output = String(data: data.get(), encoding: .utf8) ?? ""
 
         let status = process.isRunning ? -1 : process.terminationStatus
         return Result(status: status, output: output, timedOut: timedOut)
@@ -161,5 +151,44 @@ public enum Shell {
             if FileManager.default.isExecutableFile(atPath: candidate) { return candidate }
         }
         return nil
+    }
+
+    private static func terminate(_ process: Process, pipe: Pipe) {
+        guard process.isRunning else { return }
+        process.terminate()
+
+        let deadline = Date().addingTimeInterval(1)
+        while process.isRunning, Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        if process.isRunning {
+            kill(process.processIdentifier, SIGKILL)
+        }
+        // A descendant can inherit the write end and keep the reader blocked
+        // after its parent dies. Closing our read end makes timeout bounded.
+        try? pipe.fileHandleForReading.close()
+    }
+
+    /// A small lock-backed transfer box for values written by a pipe reader and
+    /// consumed by the waiting caller.
+    private final class LockedValue<Value: Sendable>: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value: Value
+
+        init(_ value: Value) {
+            self.value = value
+        }
+
+        func set(_ newValue: Value) {
+            lock.lock()
+            value = newValue
+            lock.unlock()
+        }
+
+        func get() -> Value {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
     }
 }

@@ -15,7 +15,9 @@ struct RemovalConfirmation: View {
     private var permanent: Bool { model.removalIsPermanent }
 
     /// True when nothing from this pass will be recoverable afterwards.
-    private var isDestructive: Bool { permanent || model.emptiesTrashAfterCleaning }
+    private var isDestructive: Bool {
+        permanent || model.selectionMixesTrash || model.emptiesTrashAfterCleaning
+    }
 
     private var headline: String {
         let size = Bytes.format(model.selectedBytes)
@@ -27,6 +29,9 @@ struct RemovalConfirmation: View {
                 return "Erase \(total) with no way back?"
             }
             return "Erase \(size) and the Trash, with no way back?"
+        }
+        if model.selectionMixesTrash {
+            return "Move most items and permanently erase \(Bytes.format(model.selectedTrashBytes))?"
         }
         return permanent ? "Delete \(size) permanently?" : "Move \(size) to the Trash?"
     }
@@ -48,6 +53,11 @@ struct RemovalConfirmation: View {
         }
         .frame(width: 480)
         .background(Palette.canvas(scheme))
+        .onDisappear {
+            if model.stage != .cleaning {
+                model.emptiesTrashAfterCleaning = false
+            }
+        }
     }
 
     private var header: some View {
@@ -111,9 +121,9 @@ struct RemovalConfirmation: View {
 
     private var recovery: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: permanent ? "xmark.bin" : "arrow.uturn.backward")
+            Image(systemName: isDestructive ? "xmark.bin" : "arrow.uturn.backward")
                 .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(permanent ? Palette.caution : Palette.positive)
+                .foregroundStyle(isDestructive ? Palette.caution : Palette.positive)
                 .frame(width: 16)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -138,7 +148,7 @@ struct RemovalConfirmation: View {
     private var recoveryDetail: String {
         if model.emptiesTrashAfterCleaning {
             return
-                "You chose to empty the Trash as part of this pass, so nothing here survives it. Every path is still recorded in History."
+                "You chose to empty the Trash as part of this pass, so nothing here survives it. Readable paths are recorded in History; Finder also empties per-volume Trash."
         }
         if permanent {
             return
@@ -187,7 +197,8 @@ struct RemovalConfirmation: View {
             HStack(alignment: .top, spacing: 10) {
                 ApexCheckbox(
                     isOn: $model.emptiesTrashAfterCleaning,
-                    tint: Palette.caution
+                    tint: Palette.caution,
+                    label: "Empty the Trash afterwards"
                 )
                 .allowsHitTesting(false)
                 .padding(.top, 1)
@@ -252,20 +263,32 @@ struct RemovalConfirmation: View {
     private var actions: some View {
         HStack(spacing: 10) {
             Spacer()
-            ApexButton(title: "Cancel", kind: .quiet) { dismiss() }
-                .keyboardShortcut(.cancelAction)
-            ApexButton(
-                title: confirmTitle,
-                symbol: "trash",
-                kind: model.emptiesTrashAfterCleaning || permanent ? .destructive : .primary
-            ) {
+            ApexButton(title: "Cancel", kind: .quiet) {
+                model.emptiesTrashAfterCleaning = false
                 dismiss()
-                onConfirm()
             }
-            .keyboardShortcut(.defaultAction)
+            .keyboardShortcut(.cancelAction)
+            confirmButton
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private var confirmButton: some View {
+        let button = ApexButton(
+            title: confirmTitle,
+            symbol: "trash",
+            kind: isDestructive ? .destructive : .primary
+        ) {
+            dismiss()
+            onConfirm()
+        }
+        if isDestructive {
+            button
+        } else {
+            button.keyboardShortcut(.defaultAction)
+        }
     }
 
     private var confirmTitle: String {

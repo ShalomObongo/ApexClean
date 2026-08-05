@@ -18,6 +18,7 @@ struct RootView: View {
                 content
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .accessibilityHidden(state.isOnboarding)
 
             // Covers the app entirely rather than sitting in a sheet: setup is
             // the task until it is finished, and a half-visible app behind it
@@ -261,54 +262,56 @@ private struct SidebarHealthFooter: View {
         let health = vitals.snapshot.health
         let storage = vitals.snapshot.storage
 
-        return VStack(alignment: .leading, spacing: 11) {
-            HStack(spacing: 9) {
-                ZStack {
-                    RingGauge(
-                        value: Double(health.value) / 100,
-                        tint: Palette.health(health.value),
-                        thickness: 3.5
-                    )
-                    .frame(width: 32, height: 32)
-                    Text("\(health.value)")
-                        .font(Typo.metric(12, weight: .bold))
-                        .foregroundStyle(Palette.ink(scheme))
+        return Button(action: onTap) {
+            VStack(alignment: .leading, spacing: 11) {
+                HStack(spacing: 9) {
+                    ZStack {
+                        RingGauge(
+                            value: Double(health.value) / 100,
+                            tint: Palette.health(health.value),
+                            thickness: 3.5
+                        )
+                        .frame(width: 32, height: 32)
+                        Text("\(health.value)")
+                            .font(Typo.metric(12, weight: .bold))
+                            .foregroundStyle(Palette.ink(scheme))
+                    }
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("System health")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Palette.inkTertiary(scheme))
+                        Text(health.band.rawValue)
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(Palette.health(health.value))
+                    }
+                    Spacer(minLength: 0)
                 }
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("System health")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Palette.inkTertiary(scheme))
-                    Text(health.band.rawValue)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(Palette.health(health.value))
-                }
-                Spacer(minLength: 0)
-            }
 
-            VStack(alignment: .leading, spacing: 5) {
-                CapacityBar(
-                    used: storage.used,
-                    total: storage.total,
-                    height: 5,
-                    tint: Palette.load(storage.usedFraction)
-                )
-                Text("\(Bytes.format(storage.free)) free of \(Bytes.format(storage.total))")
-                    .font(.system(size: 10, weight: .medium))
-                    .foregroundStyle(Palette.inkTertiary(scheme))
+                VStack(alignment: .leading, spacing: 5) {
+                    CapacityBar(
+                        used: storage.used,
+                        total: storage.total,
+                        height: 5,
+                        tint: Palette.load(storage.usedFraction)
+                    )
+                    Text("\(Bytes.format(storage.free)) free of \(Bytes.format(storage.total))")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundStyle(Palette.inkTertiary(scheme))
+                }
             }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(Palette.surface(scheme).opacity(scheme == .dark ? 0.5 : 0.7))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Palette.hairline(scheme), lineWidth: 1)
+            )
+            .contentShape(Rectangle())
         }
-        .padding(12)
-        .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(Palette.surface(scheme).opacity(scheme == .dark ? 0.5 : 0.7))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .strokeBorder(Palette.hairline(scheme), lineWidth: 1)
-        )
-        .onTapGesture { onTap() }
+        .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isButton)
         .accessibilityHint("Opens the Vitals screen")
     }
 }

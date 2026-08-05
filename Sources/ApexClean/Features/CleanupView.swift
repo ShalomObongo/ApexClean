@@ -20,7 +20,9 @@ struct CleanupView: View {
                 .padding(.top, 26)
                 .padding(.bottom, 16)
 
-            if model.report.isEmpty && model.stage != .scanning {
+            if model.stage == .scanning {
+                StateView(kind: .working("Scanning \(model.progress.currentTitle)…"))
+            } else if model.report.isEmpty {
                 emptyState
             } else {
                 content
@@ -114,17 +116,23 @@ struct CleanupView: View {
             Image(systemName: "checklist")
                 .font(.system(size: 40, weight: .light))
                 .foregroundStyle(Palette.info)
-            Text("Nothing scanned yet")
+            Text(model.stage == .finished ? "Nothing to clean" : "Nothing scanned yet")
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
             Text(
-                "ApexClean never inspects your Mac in the background.\nRun a scan when you want to see what can be reclaimed."
+                model.stage == .finished
+                    ? "The scan finished without finding any selected cleanup targets."
+                    : "ApexClean never inspects your Mac in the background.\nRun a scan when you want to see what can be reclaimed."
             )
             .font(Typo.body)
             .foregroundStyle(Palette.inkTertiary(scheme))
             .multilineTextAlignment(.center)
-            ApexButton(title: "Scan now", symbol: "scope", size: .large) { model.scan() }
-                .padding(.top, 4)
+            ApexButton(
+                title: model.stage == .finished ? "Scan again" : "Scan now",
+                symbol: "scope",
+                size: .large
+            ) { model.scan() }
+            .padding(.top, 4)
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -181,7 +189,8 @@ private struct DetailedGroupCard: View {
                     ApexCheckbox(
                         isOn: Binding(get: { selection.isOn }, set: { _ in model.toggle(group: group) }),
                         tint: tint,
-                        isMixed: selection.isMixed
+                        isMixed: selection.isMixed,
+                        label: group.category.title
                     )
                     GlyphTile(symbol: group.category.symbol, tint: tint, size: 30)
                     VStack(alignment: .leading, spacing: 2) {

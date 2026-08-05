@@ -1,4 +1,4 @@
-import ApexCore
+@preconcurrency import ApexCore
 import AppKit
 import SwiftUI
 
@@ -84,8 +84,9 @@ final class SpaceModel: ObservableObject {
         let includesProtected = includesProtectedLocations
         let skipList = quarantined
         startWatchdog(for: scanner, token: token)
+        let model = self
 
-        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+        DispatchQueue.global(qos: .userInitiated).async {
             // Same coalescing rationale as the cleanup scan: a large home folder
             // emits thousands of progress posts, far more than the display can
             // consume, and forwarding them all starves the main thread.
@@ -95,31 +96,34 @@ final class SpaceModel: ObservableObject {
                 guard now.timeIntervalSince(lastPublish) >= 0.06 else { return }
                 lastPublish = now
                 DispatchQueue.main.async {
-                    guard let self, self.generation == token else { return }
-                    self.scannedPaths = update.scannedPaths
-                    self.currentPath = update.currentPath
+                    guard model.generation == token else { return }
+                    model.scannedPaths = update.scannedPaths
+                    model.currentPath = update.currentPath
                 }
             }
-            let large = LargeFileFinder.find(
-                in: target,
-                minimumBytes: 200_000_000,
-                limit: 60,
-                includesProtectedLocations: includesProtected,
-                skipping: skipList,
-                onVisit: { scanner.noteProgress() },
-                isCancelled: { scanner.isStopped }
-            )
+            let large =
+                scanner.isStopped
+                ? []
+                : LargeFileFinder.find(
+                    in: target,
+                    minimumBytes: 200_000_000,
+                    limit: 60,
+                    includesProtectedLocations: includesProtected,
+                    skipping: skipList,
+                    onVisit: { scanner.noteProgress($0.path) },
+                    isCancelled: { scanner.isStopped }
+                )
             DispatchQueue.main.async {
                 // A superseded scan must not overwrite the live one, even if it
                 // eventually finishes hours later.
-                guard let self, self.generation == token else { return }
-                self.stopWatchdog()
+                guard model.generation == token else { return }
+                model.stopWatchdog()
                 withAnimation(Motion.stage) {
-                    self.root = node
-                    self.current = node
-                    self.largeFiles = large
-                    self.unreadablePaths = scanner.unreadablePaths
-                    self.isScanning = false
+                    model.root = node
+                    model.current = node
+                    model.largeFiles = large
+                    model.unreadablePaths = scanner.unreadablePaths
+                    model.isScanning = false
                 }
             }
         }
@@ -139,8 +143,9 @@ final class SpaceModel: ObservableObject {
             let beat = scanner.heartbeat
             if beat == lastBeat {
                 quietTicks += 1
-                // Four quiet ticks ≈ 12s without touching a single path.
-                if quietTicks >= 4 {
+                // Eight quiet ticks ≈ 24s, longer than the longest bounded
+                // sub-operation (`du` has a 20-second budget).
+                if quietTicks >= 8 {
                     self.abandonStalledScan(scanner, token: token)
                 }
             } else {
@@ -225,16 +230,23 @@ final class SpaceModel: ObservableObject {
     }
 
     func revealInFinder(_ node: SpaceNode) {
+        guard !node.isSynthetic else { return }
         NSWorkspace.shared.activateFileViewerSelecting([node.url])
     }
 
     func moveToTrash(_ node: SpaceNode) {
+        guard !node.isSynthetic else {
+            removalError = "This tile groups smaller items. Open it and choose a real file or folder."
+            return
+        }
+        removalError = nil
         let historyRef = history
         let url = node.url
         let bytes = node.bytes
         removing.insert(node.id)
-        queue.async { [weak self] in
-            let remover = Remover(history: historyRef)
+        let model = self
+        queue.async {
+            let remover = Remover()
             // Space Lens operates on real user documents, so the user-root guard
             // is relaxed here — but disposal is always the Trash, never unlink.
             let outcome = remover.remove(
@@ -243,58 +255,78 @@ final class SpaceModel: ObservableObject {
                 allowUserRoots: true,
                 knownSizes: [url: bytes]
             )
-            _ = historyRef.commitSession(title: "Moved to Trash from Space Lens")
+            _ = historyRef.commitSession(
+                title: "Moved to Trash from Space Lens",
+                entries: outcome.historyEntries
+            )
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.removing.remove(node.id)
+                model.removing.remove(node.id)
                 guard outcome.removed.contains(url) else {
-                    self.removalError =
+                    model.removalError =
                         outcome.refused.first?.reason
                         ?? outcome.failed.first?.error
                         ?? "The item could not be moved to the Trash."
                     return
                 }
-                self.largeFiles.removeAll { $0.url == url }
-                if self.selected == node { self.selected = nil }
-                if self.hovered == node { self.hovered = nil }
+                model.largeFiles.removeAll { $0.url == url }
+                if model.selected == node { model.selected = nil }
+                if model.hovered == node { model.hovered = nil }
                 // Prune in place rather than rescanning: re-measuring a home
                 // folder takes minutes and the answer is already known.
                 withAnimation(Motion.stage) {
                     node.parent?.prune(node)
-                    self.objectWillChange.send()
+                    model.objectWillChange.send()
                 }
             }
         }
     }
 
     func trashLargeFile(_ match: LargeFileFinder.Match) {
+        removalError = nil
         let historyRef = history
         let url = match.url
         removing.insert(url.path)
-        queue.async { [weak self] in
-            let remover = Remover(history: historyRef)
+        let model = self
+        queue.async {
+            let remover = Remover()
             let outcome = remover.remove(
                 [url],
                 disposal: .trash,
                 allowUserRoots: true,
                 knownSizes: [url: match.bytes]
             )
-            _ = historyRef.commitSession(title: "Moved large file to Trash")
+            _ = historyRef.commitSession(
+                title: "Moved large file to Trash",
+                entries: outcome.historyEntries
+            )
             DispatchQueue.main.async {
-                guard let self else { return }
-                self.removing.remove(url.path)
+                model.removing.remove(url.path)
                 guard outcome.removed.contains(url) else {
-                    self.removalError =
+                    model.removalError =
                         outcome.refused.first?.reason
                         ?? outcome.failed.first?.error
                         ?? "The file could not be moved to the Trash."
                     return
                 }
                 withAnimation(Motion.enter) {
-                    self.largeFiles.removeAll { $0.url == url }
+                    model.largeFiles.removeAll { $0.url == url }
+                    if let node = model.root.flatMap({ model.findNode(url: url, in: $0) }),
+                        let parent = node.parent
+                    {
+                        parent.prune(node)
+                        model.objectWillChange.send()
+                    }
                 }
             }
         }
+    }
+
+    private func findNode(url: URL, in node: SpaceNode) -> SpaceNode? {
+        if node.url.standardizedFileURL == url.standardizedFileURL { return node }
+        for child in node.children {
+            if let match = findNode(url: url, in: child) { return match }
+        }
+        return nil
     }
 
     func chooseFolder() {

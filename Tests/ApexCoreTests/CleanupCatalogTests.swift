@@ -6,6 +6,7 @@ final class CleanupCatalogTests: XCTestCase {
     func testCatalogIsSubstantialAndWellFormed() {
         let rules = CleanupCatalog.all
         XCTAssertGreaterThan(rules.count, 300, "Catalog should cover a broad set of vendors")
+        XCTAssertEqual(rules.count, 406, "Update documented catalog counts when rules change")
 
         for rule in rules {
             XCTAssertFalse(rule.title.isEmpty, "Every rule needs a human-readable title")
@@ -70,6 +71,31 @@ final class CleanupCatalogTests: XCTestCase {
             browserRules.count / 2,
             "Most browser cache rules should declare a quit requirement"
         )
+    }
+
+    func testRiskyParityAuditRulesStayExcludedOrGuarded() {
+        let rules = CleanupCatalog.all
+        XCTAssertFalse(rules.contains { $0.pattern == "~/Library/Logs/*" })
+        XCTAssertFalse(rules.contains { $0.pattern == "~/.pub-cache/*" })
+        XCTAssertFalse(
+            rules.contains {
+                $0.pattern == "~/Library/Application Support/Claude/pending-uploads/*"
+            }
+        )
+
+        let partialDownloads = rules.filter {
+            ["download", "crdownload", "part"].contains(
+                URL(fileURLWithPath: $0.pattern).pathExtension
+            )
+        }
+        XCTAssertTrue(partialDownloads.allSatisfy { ($0.minimumAgeDays ?? 0) >= 1 })
+
+        let developerRules = rules.filter {
+            $0.pattern.contains("/Library/Developer/Xcode/")
+                || $0.pattern.contains("/Library/Developer/CoreSimulator/")
+        }
+        XCTAssertFalse(developerRules.isEmpty)
+        XCTAssertTrue(developerRules.allSatisfy { !$0.requiresQuit.isEmpty })
     }
 
     func testEveryCategoryHasPresentationMetadata() {

@@ -30,16 +30,23 @@ struct HistoryView: View {
     }
 
     private func reload() {
-        sessions = state.history.recentSessions(limit: 30)
-        entries = state.history.recentEntries(limit: 120)
-        state.refreshHistory()
+        let history = state.history
+        Task.detached(priority: .utility) {
+            let sessions = history.recentSessions(limit: 30)
+            let entries = history.recentEntries(limit: 120)
+            await MainActor.run {
+                self.sessions = sessions
+                self.entries = entries
+                state.refreshHistory()
+            }
+        }
     }
 
     private var header: some View {
         PageHeader(
             eyebrow: "History",
-            title: "Everything ApexClean touched",
-            subtitle: "A complete local record. Nothing is removed without appearing here."
+            title: "Recent activity, fully local",
+            subtitle: "The latest sessions and paths from the durable on-device operation log."
         ) {
             ApexButton(title: "Reveal Trash", symbol: "trash", kind: .secondary) {
                 NSWorkspace.shared.open(PathGuard.home.appendingPathComponent(".Trash"))
@@ -50,9 +57,9 @@ struct HistoryView: View {
     private var totals: some View {
         HStack(spacing: 14) {
             statTile(
-                "Reclaimed in total", Bytes.format(state.totalReclaimedEver), Palette.jade,
+                "Handled in total", Bytes.format(state.totalHandledEver), Palette.jade,
                 "arrow.down.circle")
-            statTile("Sessions", "\(sessions.count)", Palette.info, "clock")
+            statTile("Recent sessions", "\(sessions.count)", Palette.info, "clock")
             statTile(
                 "Recoverable",
                 "\(sessions.reduce(0) { $0 + $1.recoverableCount })",
@@ -116,8 +123,8 @@ struct HistoryView: View {
         VStack(spacing: 8) {
             SectionHeader(
                 eyebrow: "Detail",
-                title: "Individual paths",
-                subtitle: "The exact files removed, most recent first."
+                title: "Recent paths",
+                subtitle: "The latest exact paths handled, most recent first."
             )
             .padding(.horizontal, 2)
 
