@@ -14,7 +14,7 @@ struct AboutView: View {
 
     private static let version: String = {
         let info = Bundle.main.infoDictionary
-        let short = info?["CFBundleShortVersionString"] as? String ?? "1.0.0"
+        let short = info?["CFBundleShortVersionString"] as? String ?? "1.5.0"
         let build = info?["CFBundleVersion"] as? String ?? "dev"
         return "Version \(short) (\(build))"
     }()

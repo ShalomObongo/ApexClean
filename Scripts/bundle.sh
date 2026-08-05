@@ -8,7 +8,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${CONFIG:-release}"
 APP="$ROOT/dist/ApexClean.app"
-VERSION="${VERSION:-1.1.0}"
+VERSION="${VERSION:-1.5.0}"
 BUILD_NUMBER="${BUILD_NUMBER:-$(date +%Y%m%d%H%M)}"
 
 # Release artefacts must run on both Apple Silicon and Intel. Local builds stay
