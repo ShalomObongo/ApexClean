@@ -175,6 +175,7 @@ final class AppState: ObservableObject {
         cleanup.stage == .cleaning
             || applications.isUninstalling
             || !applications.removingStartupItems.isEmpty
+            || !applications.upgrading.isEmpty
             || !space.removing.isEmpty
             || maintenance.isRunning
     }

@@ -253,13 +253,16 @@ final class ApplicationsModel: ObservableObject {
         )
         let model = self
         let identifier = plan.app.bundleID.lowercased()
+        let selectedIdentifierLeftovers = plan.leftovers.contains {
+            planSelection.contains($0.id) && $0.confidence == .bundleIdentifier
+        }
 
         queue.async {
             let liveSiblings =
                 AppInventory.scan(running: running)
                 .filter { $0.bundleID.lowercased() == identifier }
                 .count
-            guard !identifier.isEmpty, liveSiblings == 1 else {
+            guard !selectedIdentifierLeftovers || (!identifier.isEmpty && liveSiblings == 1) else {
                 var refused = Remover.Outcome()
                 refused.refused.append(
                     (

@@ -24,7 +24,11 @@ struct SpaceLensView: View {
                 stalledState(stalled)
             } else if model.root == nil {
                 emptyState
-            } else if let root = model.root, root.children.isEmpty {
+            } else if let root = model.root,
+                root.children.isEmpty,
+                root.bytes == 0,
+                model.unreadablePaths.isEmpty
+            {
                 StateView(
                     kind: .empty(
                         symbol: "folder",

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import os
 
@@ -154,19 +155,48 @@ public enum Shell {
     }
 
     private static func terminate(_ process: Process, pipe: Pipe) {
-        guard process.isRunning else { return }
-        process.terminate()
+        let rootPID = process.processIdentifier
+        let descendants = descendantPIDs(of: rootPID)
+        for pid in descendants {
+            _ = kill(pid, SIGTERM)
+        }
+        if !descendants.isEmpty { Thread.sleep(forTimeInterval: 0.05) }
+        _ = kill(rootPID, SIGTERM)
 
         let deadline = Date().addingTimeInterval(1)
         while process.isRunning, Date() < deadline {
             Thread.sleep(forTimeInterval: 0.02)
         }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
+
+        let survivors = descendants + descendantPIDs(of: rootPID) + [rootPID]
+        for pid in survivors where kill(pid, 0) == 0 {
+            _ = kill(pid, SIGKILL)
+        }
+        let killDeadline = Date().addingTimeInterval(1)
+        while survivors.contains(where: { kill($0, 0) == 0 }), Date() < killDeadline {
+            Thread.sleep(forTimeInterval: 0.02)
         }
         // A descendant can inherit the write end and keep the reader blocked
         // after its parent dies. Closing our read end makes timeout bounded.
         try? pipe.fileHandleForReading.close()
+    }
+
+    private static func descendantPIDs(of parent: pid_t) -> [pid_t] {
+        let byteCount = proc_listchildpids(parent, nil, 0)
+        guard byteCount > 0 else { return [] }
+
+        var children = [pid_t](
+            repeating: 0,
+            count: Int(byteCount) / MemoryLayout<pid_t>.stride
+        )
+        let filled = children.withUnsafeMutableBytes { buffer in
+            proc_listchildpids(parent, buffer.baseAddress, byteCount)
+        }
+        guard filled > 0 else { return [] }
+
+        let count = Int(filled)
+        let direct = Array(children.prefix(count)).filter { $0 > 0 }
+        return direct + direct.flatMap(descendantPIDs)
     }
 
     /// A small lock-backed transfer box for values written by a pipe reader and

@@ -36,30 +36,13 @@ public struct InstalledApp: Identifiable, Hashable, Sendable {
 /// Enumerates installed applications and the facts needed to reason about them.
 public enum AppInventory {
     private static var searchRoots: [URL] {
-        var roots = [
+        let roots = [
             URL(fileURLWithPath: "/Applications"),
             URL(fileURLWithPath: "/Applications/Utilities"),
             PathGuard.home.appendingPathComponent("Applications"),
             URL(fileURLWithPath: "/Applications/Setapp"),
             PathGuard.home.appendingPathComponent("Applications/Setapp"),
-            URL(fileURLWithPath: "/Library/Input Methods"),
-            PathGuard.home.appendingPathComponent("Library/Input Methods"),
         ]
-        let keys: [URLResourceKey] = [.volumeIsLocalKey, .volumeIsBrowsableKey]
-        if let volumes = FileManager.default.mountedVolumeURLs(
-            includingResourceValuesForKeys: keys,
-            options: [.skipHiddenVolumes]
-        ) {
-            for volume in volumes {
-                guard let values = try? volume.resourceValues(forKeys: Set(keys)),
-                    values.volumeIsLocal == true,
-                    values.volumeIsBrowsable == true,
-                    volume.path != "/"
-                else { continue }
-                roots.append(volume.appendingPathComponent("Applications"))
-                roots.append(volume.appendingPathComponent("Applications/Utilities"))
-            }
-        }
         return Array(
             Dictionary(
                 grouping: roots.map(\.standardizedFileURL),
@@ -162,7 +145,7 @@ public enum AppInventory {
         let hasReceipt = FileManager.default.fileExists(
             atPath: url.appendingPathComponent("Contents/_MASReceipt/receipt").path
         )
-        let isSystem = url.path.hasPrefix("/System/")
+        let isSystem = url.resolvingSymlinksInPath().path.hasPrefix("/System/")
 
         let source: InstalledApp.Source
         if isSystem {

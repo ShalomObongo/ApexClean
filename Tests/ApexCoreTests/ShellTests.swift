@@ -36,6 +36,31 @@ final class ShellTests: XCTestCase {
         XCTAssertLessThan(Date().timeIntervalSince(started), 4)
     }
 
+    func testTimeoutTerminatesDescendantProcesses() throws {
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+
+        _ = Shell.runDetailed(
+            "/bin/sh",
+            ["-c", "sleep 30 & echo $! > '\(pidFile.path)'; wait"],
+            timeout: 0.5
+        )
+
+        let raw = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try XCTUnwrap(Int32(raw))
+        let state = Shell.run(
+            "/bin/ps",
+            ["-p", "\(pid)", "-o", "stat="],
+            timeout: 2
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(
+            state == nil || state?.isEmpty == true || state?.hasPrefix("Z") == true,
+            "The timed-out command left an active child process in state \(state ?? "?")"
+        )
+    }
+
     func testMissingExecutableReturnsNil() {
         XCTAssertNil(Shell.run("/definitely/not/a/binary", []))
     }

@@ -140,11 +140,14 @@ public enum StartupInventory {
         let launchctl = "/bin/launchctl"
         guard Shell.exists(launchctl) else { return false }
         let uid = getuid()
-        return Shell.runDetailed(
+        let result = Shell.runDetailed(
             launchctl,
             ["bootout", "gui/\(uid)/\(item.label)"],
             timeout: 8
-        ).succeeded
+        )
+        if result.succeeded { return true }
+        let line = result.lastMeaningfulLine?.lowercased() ?? ""
+        return result.status == 3 && line.contains("no such process")
     }
 
     public static func unload(plist url: URL) -> Bool {

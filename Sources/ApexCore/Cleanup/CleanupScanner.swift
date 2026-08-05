@@ -155,9 +155,9 @@ public final class CleanupScanner: @unchecked Sendable {
         var bytesFound: Int64 = 0
         var stalled: [String] = []
         var timedOutRules = 0
-        let hardlinks = FileSize.HardlinkSet()
+        var stoppedAfterTimeouts = false
 
-        for (index, rule) in rules.enumerated() {
+        ruleLoop: for (index, rule) in rules.enumerated() {
             if isCancelled { break }
             onProgress?(
                 Progress(
@@ -174,7 +174,7 @@ public final class CleanupScanner: @unchecked Sendable {
             // stop waiting on it and carry on.
             switch withBudget(
                 Self.ruleBudget,
-                { self.evaluate(rule, running: running, hardlinks: hardlinks) }
+                { self.evaluate(rule, running: running) }
             ) {
             case let .finished(finding):
                 guard let finding else { continue }
@@ -184,7 +184,10 @@ public final class CleanupScanner: @unchecked Sendable {
                 Log.engine.notice("Skipped '\(rule.title, privacy: .public)' — location did not respond")
                 stalled.append(rule.title)
                 timedOutRules += 1
-                if timedOutRules >= Self.maximumTimedOutRules { break }
+                if timedOutRules >= Self.maximumTimedOutRules {
+                    stoppedAfterTimeouts = true
+                    break ruleLoop
+                }
             }
         }
 
@@ -194,10 +197,10 @@ public final class CleanupScanner: @unchecked Sendable {
         // Trash is measured directly rather than through a glob: its contents are
         // arbitrary user files, and it is removed with a different disposal.
         // Deliberately after deduplication, which must not touch it.
-        if categories.contains(.trash), !isCancelled {
+        if categories.contains(.trash), !isCancelled, !stoppedAfterTimeouts {
             switch withBudget(
                 Self.ruleBudget,
-                { self.trashFinding(hardlinks: hardlinks) }
+                { self.trashFinding() }
             ) {
             case let .finished(trash):
                 if let trash { findingsByCategory[.trash] = [trash] }
@@ -209,7 +212,10 @@ public final class CleanupScanner: @unchecked Sendable {
         var report = CleanupReport()
         report.scannedAt = Date()
         report.duration = Date().timeIntervalSince(started)
-        report.stalledRules = stalled
+        report.stalledRules =
+            stoppedAfterTimeouts
+            ? stalled + ["Scan stopped after repeated timeouts"]
+            : stalled
         report.groups = CleanupCategory.allCases.compactMap { category in
             guard let findings = findingsByCategory[category], !findings.isEmpty else { return nil }
             return CleanupGroup(
@@ -219,7 +225,7 @@ public final class CleanupScanner: @unchecked Sendable {
             )
         }
 
-        if !isCancelled {
+        if !isCancelled, !stoppedAfterTimeouts {
             onProgress?(
                 Progress(
                     completed: rules.count,
@@ -356,8 +362,7 @@ public final class CleanupScanner: @unchecked Sendable {
 
     private func evaluate(
         _ rule: CleanupRule,
-        running: RunningAppsSnapshot,
-        hardlinks: FileSize.HardlinkSet
+        running: RunningAppsSnapshot
     ) -> CleanupFinding? {
         let matches = Glob.expand(rule.pattern)
         guard !matches.isEmpty else { return nil }
@@ -379,11 +384,7 @@ public final class CleanupScanner: @unchecked Sendable {
                 guard let modified, modified < cutoff else { continue }
             }
 
-            let measurement = FileSize.measure(
-                url,
-                hardlinks: hardlinks,
-                isCancelled: { self.isCancelled }
-            )
+            let measurement = FileSize.measure(url, isCancelled: { self.isCancelled })
             guard measurement.bytes > 0 else { continue }
             items.append(
                 CleanupItem(
@@ -414,7 +415,7 @@ public final class CleanupScanner: @unchecked Sendable {
         )
     }
 
-    private func trashFinding(hardlinks: FileSize.HardlinkSet) -> CleanupFinding? {
+    private func trashFinding() -> CleanupFinding? {
         let trash = PathGuard.home.appendingPathComponent(".Trash")
         guard
             let values = try? trash.resourceValues(
@@ -432,11 +433,7 @@ public final class CleanupScanner: @unchecked Sendable {
         var items: [CleanupItem] = []
         for url in contents {
             if isCancelled { break }
-            let measurement = FileSize.measure(
-                url,
-                hardlinks: hardlinks,
-                isCancelled: { self.isCancelled }
-            )
+            let measurement = FileSize.measure(url, isCancelled: { self.isCancelled })
             let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
                 .contentModificationDate
             items.append(

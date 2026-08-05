@@ -72,7 +72,11 @@ public final class VitalsMonitor: ObservableObject {
     private var interval: TimeInterval { (subscribers > 0 && isOnScreen) ? 2.0 : 10.0 }
 
     private func applyCadence() {
-        guard let timer, timer.timeInterval != interval else { return }
+        guard let timer else {
+            start()
+            return
+        }
+        guard timer.timeInterval != interval else { return }
         start(restart: true)
     }
 
@@ -123,6 +127,7 @@ public final class VitalsMonitor: ObservableObject {
             guard let self else { return }
             guard self.sampleGeneration == generation else { return }
             self.sampleInFlight = false
+            self.abandonedEngines = 0
             self.snapshot = next
             self.append(&self.cpuHistory, next.cpu.usage / 100)
             self.append(&self.memoryHistory, next.memory.pressure)
@@ -137,6 +142,7 @@ public final class VitalsMonitor: ObservableObject {
             else { return }
 
             self.sampleInFlight = false
+            self.sampleGeneration &+= 1
             self.abandonedEngines += 1
             self.engine = SamplingEngine()
             Log.vitals.error("Sampling exceeded its deadline; replaced the sampling engine")

@@ -253,7 +253,7 @@ public enum PathGuard {
             return .refused(reason: "Required by macOS")
         }
 
-        let location = path.standardizedFileURL.path
+        let location = path.standardizedFileURL.resolvingSymlinksInPath().path
         // Case-folded for the same reason `evaluate` is: on a case-insensitive
         // volume `/system/Applications/Mail.app` is the same file as
         // `/System/...`, and a byte-exact prefix test would wave it through.

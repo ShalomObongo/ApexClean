@@ -422,6 +422,8 @@ public enum LeftoverFinder {
     private static func uninstallVerdict(for app: InstalledApp) -> PathGuard.Verdict {
         let pathVerdict = PathGuard.canUninstall(bundleID: app.bundleID, path: app.url)
         guard pathVerdict.isAllowed else { return pathVerdict }
+        let removalVerdict = PathGuard.evaluate(app.url)
+        guard removalVerdict.isAllowed else { return removalVerdict }
         if app.source == .homebrew {
             return .refused(
                 reason: "Managed by Homebrew. Use Homebrew to run the cask's reviewed uninstall hooks."

@@ -1,18 +1,5 @@
 import AppKit
-import Darwin
 import Foundation
-
-private struct InodeKey: Hashable, Sendable {
-    let device: dev_t
-    let inode: ino_t
-
-    init?(_ url: URL) {
-        var status = stat()
-        guard lstat(url.path, &status) == 0 else { return nil }
-        device = status.st_dev
-        inode = status.st_ino
-    }
-}
 
 /// One node in the on-disk size tree.
 public final class SpaceNode: Identifiable, Hashable, @unchecked Sendable {
@@ -116,11 +103,12 @@ public final class SpaceScanner: @unchecked Sendable {
     /// The path currently being opened. Recorded *before* the read so that if
     /// the read never returns, the culprit is still nameable.
     private var inFlight = ""
+    private let scanLock = NSLock()
     private var fence: Traversal.VolumeFence?
     /// What the user asked to map, so an opaque root containing it can be
     /// ignored rather than blanking the whole scan.
     private var scanRoot: URL?
-    private var seenInodes: Set<InodeKey> = []
+    private var hardlinks = FileSize.HardlinkSet()
     private let lister = GuardedDirectoryLister()
     /// Paths a previous attempt proved unresponsive. Retrying without them is
     /// what turns a dead end into a recoverable one.
@@ -177,6 +165,8 @@ public final class SpaceScanner: @unchecked Sendable {
         maxDepth: Int = 6,
         onProgress: ((Progress) -> Void)? = nil
     ) -> SpaceNode? {
+        scanLock.lock()
+        defer { scanLock.unlock() }
         // Resolved up front. `/Volumes/Macintosh HD` is a symlink to `/` on
         // every Mac, and the symlink branch below returns a zero-byte leaf — so
         // choosing it from the folder picker produced an empty map with no
@@ -187,7 +177,7 @@ public final class SpaceScanner: @unchecked Sendable {
         scanned = 0
         beats = 0
         inFlight = resolvedRoot.path
-        seenInodes = []
+        hardlinks = FileSize.HardlinkSet()
         lock.unlock()
         fence = Traversal.VolumeFence(root: resolvedRoot)
         scanRoot = resolvedRoot
@@ -221,6 +211,7 @@ public final class SpaceScanner: @unchecked Sendable {
         let keys: Set<URLResourceKey> = [
             .isDirectoryKey, .isSymbolicLinkKey, .totalFileAllocatedSizeKey,
             .fileAllocatedSizeKey, .contentModificationDateKey, .isPackageKey,
+            .linkCountKey,
         ]
         guard let values = try? url.resourceValues(forKeys: keys) else { return nil }
 
@@ -234,13 +225,10 @@ public final class SpaceScanner: @unchecked Sendable {
         }
 
         guard values.isDirectory == true else {
-            let bytes: Int64
-            if let key = InodeKey(url), seenInodes.contains(key) {
-                bytes = 0
-            } else {
-                if let key = InodeKey(url) { seenInodes.insert(key) }
-                bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
-            }
+            let bytes =
+                hardlinks.admit(values, at: url)
+                ? Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+                : 0
             return SpaceNode(url: url, name: name, bytes: bytes, isDirectory: false, modified: modified)
         }
 
@@ -258,6 +246,7 @@ public final class SpaceScanner: @unchecked Sendable {
         if isPackage || isOpaque || depth >= maxDepth {
             let measurement = FileSize.measure(
                 url,
+                hardlinks: hardlinks,
                 isCancelled: {
                     self.tick(); return self.isCancelled
                 })
@@ -353,7 +342,7 @@ public enum LargeFileFinder {
     ) -> [Match] {
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey, .isDirectoryKey, .totalFileAllocatedSizeKey,
-            .fileAllocatedSizeKey, .contentModificationDateKey,
+            .fileAllocatedSizeKey, .contentModificationDateKey, .linkCountKey,
         ]
         guard
             let enumerator = FileManager.default.enumerator(
@@ -366,7 +355,7 @@ public enum LargeFileFinder {
 
         let fence = Traversal.VolumeFence(root: root)
         var matches: [Match] = []
-        var seenInodes: Set<InodeKey> = []
+        let hardlinks = FileSize.HardlinkSet()
         for case let url as URL in enumerator {
             if isCancelled() { break }
             onVisit(url)
@@ -405,9 +394,7 @@ public enum LargeFileFinder {
             }
 
             guard values.isRegularFile == true else { continue }
-            if let key = InodeKey(url) {
-                guard seenInodes.insert(key).inserted else { continue }
-            }
+            guard hardlinks.admit(values, at: url) else { continue }
             let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
             guard bytes >= minimumBytes else { continue }
             matches.append(

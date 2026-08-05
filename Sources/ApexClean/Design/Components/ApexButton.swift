@@ -39,6 +39,14 @@ struct ApexButton: View {
             case .large: 24
             }
         }
+
+        var verticalPadding: CGFloat {
+            switch self {
+            case .compact: 3
+            case .regular: 5
+            case .large: 8
+            }
+        }
     }
 
     @Environment(\.colorScheme) private var scheme
@@ -63,7 +71,8 @@ struct ApexButton: View {
             }
             .foregroundStyle(foreground)
             .padding(.horizontal, size.horizontalPadding)
-            .frame(height: size.height)
+            .padding(.vertical, size.verticalPadding)
+            .frame(minHeight: size.height)
             .background(background)
             .overlay(stroke)
             .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))

@@ -25,7 +25,7 @@ then shows you <b>everything</b> before it touches <b>anything</b>.
 <img src="https://img.shields.io/badge/macOS-14%2B-4F7180?style=flat-square&logo=apple&logoColor=FFFFFF&labelColor=26384A" alt="macOS 14+">
 <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-426E5A?style=flat-square&labelColor=26384A" alt="Universal">
 <img src="https://img.shields.io/badge/Swift-5.9%2B-81501E?style=flat-square&logo=swift&logoColor=FFFFFF&labelColor=26384A" alt="Swift 5.9+">
-<img src="https://img.shields.io/badge/tests-172_passing-426E5A?style=flat-square&labelColor=26384A" alt="172 tests">
+<img src="https://img.shields.io/badge/tests-176_passing-426E5A?style=flat-square&labelColor=26384A" alt="176 tests">
 <img src="https://img.shields.io/badge/telemetry-none-6D5878?style=flat-square&labelColor=26384A" alt="No telemetry">
 <img src="https://img.shields.io/badge/license-GPL--3.0-8F3832?style=flat-square&labelColor=26384A" alt="GPL-3.0">
 </p>
@@ -511,7 +511,7 @@ the head of a serial queue would otherwise swallow every job behind it.
 swift test
 ```
 
-**172 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
+**176 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
 bounded execution, guarded directory listing, leftover-matching precision, uninstall
 plan invariants, catalog invariants, treemap layout, health scoring and byte formatting.
 

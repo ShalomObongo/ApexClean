@@ -264,6 +264,23 @@ final class PathGuardTests: XCTestCase {
         XCTAssertFalse(verdict.isAllowed)
     }
 
+    func testRefusesSymlinkedApplicationThatResolvesIntoSystemVolume() throws {
+        let systemApp = URL(fileURLWithPath: "/System/Applications/System Settings.app")
+        guard FileManager.default.fileExists(atPath: systemApp.path) else {
+            throw XCTSkip("System Settings bundle not found")
+        }
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let alias = directory.appendingPathComponent("Alias.app")
+        try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: systemApp)
+
+        XCTAssertFalse(
+            PathGuard.canUninstall(bundleID: "com.example.alias", path: alias).isAllowed
+        )
+    }
+
     func testRequiresOfficialUninstallerForProtectedVendors() {
         for bundleID in [
             "com.crowdstrike.falcon", "com.sentinelone.agent", "com.eset.endpoint",

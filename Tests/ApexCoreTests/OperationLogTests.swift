@@ -117,6 +117,52 @@ final class OperationLogTests: XCTestCase {
         XCTAssertEqual(fileMode.intValue & 0o777, 0o600)
     }
 
+    func testSeparateInstancesDoNotOverwriteEachOther() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = OperationLog(directory: directory)
+        let second = OperationLog(directory: directory)
+
+        XCTAssertNotNil(
+            first.commitSession(
+                title: "First",
+                entries: [
+                    .init(path: "/tmp/first", bytes: 1, recoverable: true, date: Date())
+                ]
+            )
+        )
+        XCTAssertNotNil(
+            second.commitSession(
+                title: "Second",
+                entries: [
+                    .init(path: "/tmp/second", bytes: 2, recoverable: true, date: Date())
+                ]
+            )
+        )
+
+        XCTAssertEqual(Set(first.recentSessions().map(\.title)), ["First", "Second"])
+        XCTAssertEqual(first.totalProcessed(), 3)
+        XCTAssertEqual(first.totalSessionCount(), 2)
+    }
+
+    func testRecentDetailIsBoundedButLifetimeTotalsRemain() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = OperationLog(directory: directory)
+        let entries = (0..<5_100).map {
+            OperationLog.Entry(
+                path: "/tmp/\($0)",
+                bytes: 1,
+                recoverable: true,
+                date: Date()
+            )
+        }
+        XCTAssertNotNil(log.commitSession(title: "Large", entries: entries))
+        XCTAssertEqual(log.recentEntries(limit: 10_000).count, 5_000)
+        XCTAssertEqual(log.totalProcessed(), 5_100)
+        XCTAssertEqual(log.totalSessionCount(), 1)
+    }
+
     private func makeDirectory() throws -> URL {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent(UUID().uuidString, isDirectory: true)

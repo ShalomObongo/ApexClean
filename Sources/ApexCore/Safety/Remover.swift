@@ -115,7 +115,7 @@ public final class Remover {
                 }
                 outcome.removed.append(url)
                 outcome.bytesProcessed += measurement.bytes
-                if !usedTrash {
+                if !usedTrash, approvedIdentity.linkCount <= 1 {
                     outcome.bytesFreed += measurement.bytes
                 }
                 outcome.filesRemoved += max(1, measurement.fileCount)
@@ -240,6 +240,10 @@ public final class Remover {
         let device: dev_t
         let inode: ino_t
         let mode: mode_t
+        let size: off_t
+        let linkCount: nlink_t
+        let modifiedSeconds: Int64
+        let modifiedNanoseconds: Int64
 
         init?(_ url: URL) {
             var status = stat()
@@ -247,6 +251,10 @@ public final class Remover {
             device = status.st_dev
             inode = status.st_ino
             mode = status.st_mode & mode_t(S_IFMT)
+            size = status.st_size
+            linkCount = status.st_nlink
+            modifiedSeconds = Int64(status.st_mtimespec.tv_sec)
+            modifiedNanoseconds = Int64(status.st_mtimespec.tv_nsec)
         }
     }
 
@@ -304,8 +312,8 @@ public final class Remover {
             defer { progress?(index + 1, measured.count) }
             outcome.removed.append(item.url)
             outcome.bytesFreed += item.measurement.bytes
-            outcome.filesRemoved += item.measurement.fileCount
             guard !item.alreadyCounted else { continue }
+            outcome.filesRemoved += item.measurement.fileCount
             outcome.bytesProcessed += item.measurement.bytes
             outcome.historyEntries.append(
                 .init(
