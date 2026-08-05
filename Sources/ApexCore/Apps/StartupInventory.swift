@@ -36,6 +36,12 @@ public struct StartupItem: Identifiable, Hashable, Sendable {
 }
 
 public enum StartupInventory {
+    public enum UnloadOutcome: Equatable, Sendable {
+        case unloaded
+        case alreadyUnloaded
+        case failed
+    }
+
     private static let maximumPlistBytes = 1_048_576
 
     public static func scan() -> [StartupItem] {
@@ -139,28 +145,56 @@ public enum StartupInventory {
     /// does not linger until reboot.
     @discardableResult
     public static func unload(_ item: StartupItem) -> Bool {
-        guard item.scope == .userAgent else { return false }
+        unloadOutcome(item) != .failed
+    }
+
+    public static func unloadOutcome(_ item: StartupItem) -> UnloadOutcome {
+        guard item.scope == .userAgent else { return .failed }
         let launchctl = "/bin/launchctl"
-        guard Shell.exists(launchctl) else { return false }
+        guard Shell.exists(launchctl) else { return .failed }
         let uid = getuid()
         let result = Shell.runDetailed(
             launchctl,
             ["bootout", "gui/\(uid)/\(item.label)"],
             timeout: 8
         )
-        if result.succeeded { return true }
+        if result.succeeded { return .unloaded }
         let line = result.lastMeaningfulLine?.lowercased() ?? ""
         return result.status == 3 && line.contains("no such process")
+            ? .alreadyUnloaded
+            : .failed
     }
 
     public static func unload(plist url: URL) -> Bool {
+        unloadOutcome(plist: url) != .failed
+    }
+
+    public static func unloadOutcome(plist url: URL) -> UnloadOutcome {
         let userRoot = PathGuard.home.appendingPathComponent("Library/LaunchAgents").path
         let path = url.standardizedFileURL.path
         guard path.hasPrefix(userRoot + "/"),
             let item = describe(url, scope: .userAgent),
             !item.isApple
+        else { return .failed }
+        return unloadOutcome(item)
+    }
+
+    @discardableResult
+    public static func reload(plist url: URL) -> Bool {
+        let userRoot = PathGuard.home.appendingPathComponent("Library/LaunchAgents").path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(userRoot + "/"),
+            FileManager.default.fileExists(atPath: path),
+            let item = describe(url, scope: .userAgent),
+            !item.isApple,
+            Shell.exists("/bin/launchctl")
         else { return false }
-        return unload(item)
+        let result = Shell.runDetailed(
+            "/bin/launchctl",
+            ["bootstrap", "gui/\(getuid())", path],
+            timeout: 8
+        )
+        return result.succeeded
     }
 
     private static func mountedVolumeRoot(for path: String) -> String? {

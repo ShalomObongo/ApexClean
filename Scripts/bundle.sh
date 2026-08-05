@@ -85,22 +85,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>ApexClean needs access to find installers and incomplete downloads.</string>
     <key>NSRemovableVolumesUsageDescription</key>
     <string>ApexClean needs access to analyse storage on external volumes.</string>
-    <key>NSAppleEventsUsageDescription</key>
-    <string>ApexClean asks Finder to empty the Trash. macOS keeps the Trash private unless an app has Full Disk Access, so Finder does it instead.</string>
 </dict>
 </plist>
 PLIST
 
-# The hardened runtime blocks Apple events unless the entitlement is present,
-# and emptying the Trash without Full Disk Access has to go through Finder.
 ENTITLEMENTS="$ROOT/.build/ApexClean.entitlements"
 cat > "$ENTITLEMENTS" <<ENT
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
-<dict>
-    <key>com.apple.security.automation.apple-events</key><true/>
-</dict>
+<dict/>
 </plist>
 ENT
 

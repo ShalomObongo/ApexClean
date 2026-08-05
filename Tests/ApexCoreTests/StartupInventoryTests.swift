@@ -31,6 +31,8 @@ final class StartupInventoryTests: XCTestCase {
         let url = try makePlist(label: "com.example.agent", program: "/tmp/example")
         defer { try? FileManager.default.removeItem(at: url.deletingLastPathComponent()) }
         XCTAssertFalse(StartupInventory.unload(plist: url))
+        XCTAssertEqual(StartupInventory.unloadOutcome(plist: url), .failed)
+        XCTAssertFalse(StartupInventory.reload(plist: url))
     }
 
     func testDescribeRefusesSymlinkedPlist() throws {

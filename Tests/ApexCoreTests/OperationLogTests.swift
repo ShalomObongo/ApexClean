@@ -56,6 +56,47 @@ final class OperationLogTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: store), corrupt)
     }
 
+    func testSynchronousObserverCanReadWithoutReenteringTheWriteQueue() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let log = OperationLog(directory: directory)
+        let changed = expectation(description: "history changed")
+        let observer = NotificationCenter.default.addObserver(
+            forName: OperationLog.didChange,
+            object: log,
+            queue: nil
+        ) { _ in
+            XCTAssertEqual(log.recentSessions().count, 1)
+            changed.fulfill()
+        }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        XCTAssertNotNil(
+            log.commitSession(
+                title: "Observed",
+                entries: [
+                    .init(path: "/tmp/item", bytes: 1, recoverable: false, date: Date())
+                ]
+            )
+        )
+        wait(for: [changed], timeout: 1)
+    }
+
+    func testHistoryPreflightAndSnapshotExposeCorruption() throws {
+        let directory = try makeDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = directory.appendingPathComponent("history-v1.json")
+        let corrupt = Data("{\"version\":1,\"entries\":[".utf8)
+        try corrupt.write(to: store)
+        let log = OperationLog(directory: directory)
+
+        XCTAssertNotNil(log.prepareForOperation())
+        guard case .failure = log.snapshot() else {
+            return XCTFail("A corrupt history store must be visible to readers")
+        }
+        XCTAssertEqual(try Data(contentsOf: store), corrupt)
+    }
+
     func testFutureStoreVersionIsNeverOverwritten() throws {
         let directory = try makeDirectory()
         defer { try? FileManager.default.removeItem(at: directory) }

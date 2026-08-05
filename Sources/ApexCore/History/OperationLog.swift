@@ -35,6 +35,18 @@ public final class OperationLog: @unchecked Sendable {
         public var recoverableCount: Int
     }
 
+    public struct Snapshot: Sendable {
+        public let sessions: [Session]
+        public let entries: [Entry]
+        public let totalProcessed: Int64
+        public let totalSessions: Int
+    }
+
+    public struct Failure: LocalizedError, Sendable {
+        public let message: String
+        public var errorDescription: String? { message }
+    }
+
     private struct Store: Codable {
         var version = 1
         var entries: [Entry] = []
@@ -79,14 +91,24 @@ public final class OperationLog: @unchecked Sendable {
         }
     }
 
-    private enum StoreError: Error {
+    private enum StoreError: LocalizedError {
         case tooLarge
         case corrupt
         case lockUnavailable
+
+        var errorDescription: String? {
+            switch self {
+            case .tooLarge: "The operation-history store exceeds its safety limit"
+            case .corrupt: "The operation-history store is corrupt or from an unsupported version"
+            case .lockUnavailable: "The operation-history store could not be locked"
+            }
+        }
     }
 
     private let queue = DispatchQueue(label: "fit.apexclean.history")
     private let directory: URL
+    private let legacyLock = NSLock()
+    private var legacyPending: [ObjectIdentifier: [Entry]] = [:]
     private static let maximumStoreBytes: Int64 = 64 * 1024 * 1024
     private static let retainedEntries = 5_000
     private static let retainedSessions = 200
@@ -125,12 +147,32 @@ public final class OperationLog: @unchecked Sendable {
     private var legacyEntriesURL: URL { directory.appendingPathComponent("operations.json") }
     private var legacySessionsURL: URL { directory.appendingPathComponent("sessions.json") }
 
+    public var location: URL { storeURL }
+
+    /// Verifies that history can be loaded and atomically written before a
+    /// destructive operation starts.
+    public func prepareForOperation() -> String? {
+        queue.sync {
+            do {
+                try withStoreLock(exclusive: true) {
+                    try persist(loadStore())
+                }
+                return nil
+            } catch {
+                Log.safety.error(
+                    "Operation history is unavailable: \(error.localizedDescription, privacy: .public)"
+                )
+                return error.localizedDescription
+            }
+        }
+    }
+
     @discardableResult
     public func commitSession(title: String, entries: [Entry]) -> Session? {
         guard !entries.isEmpty else { return nil }
-        return queue.sync {
+        let session: Session? = queue.sync {
             do {
-                let session = try withStoreLock(exclusive: true) {
+                return try withStoreLock(exclusive: true) {
                     var store = try loadStore()
                     let session = Session(
                         title: title,
@@ -155,8 +197,6 @@ public final class OperationLog: @unchecked Sendable {
                     try persist(store)
                     return session
                 }
-                NotificationCenter.default.post(name: Self.didChange, object: self)
-                return session
             } catch {
                 Log.safety.error(
                     "Could not commit operation history: \(error.localizedDescription, privacy: .public)"
@@ -164,19 +204,69 @@ public final class OperationLog: @unchecked Sendable {
                 return nil
             }
         }
+        if session != nil {
+            NotificationCenter.default.post(name: Self.didChange, object: self)
+        }
+        return session
     }
 
-    @available(*, unavailable, message: "Use commitSession(title:entries:) with operation-scoped entries")
-    public func record(_ entry: Entry) {}
+    @available(*, deprecated, message: "Use commitSession(title:entries:) with operation-scoped entries")
+    public func record(_ entry: Entry) {
+        recordLegacy(entry)
+    }
 
-    @available(*, unavailable, message: "Use commitSession(title:entries:) with operation-scoped entries")
-    public func commitSession(title: String) -> Session? { nil }
+    func recordLegacy(_ entry: Entry) {
+        let key = ObjectIdentifier(Thread.current)
+        legacyLock.lock()
+        legacyPending[key, default: []].append(entry)
+        legacyLock.unlock()
+    }
+
+    @available(*, deprecated, message: "Use commitSession(title:entries:) with operation-scoped entries")
+    public func commitSession(title: String) -> Session? {
+        commitLegacySession(title: title)
+    }
+
+    func commitLegacySession(title: String) -> Session? {
+        legacyLock.lock()
+        let entries = legacyPending.values.flatMap { $0 }
+        legacyPending.removeAll()
+        legacyLock.unlock()
+        return commitSession(title: title, entries: entries)
+    }
 
     public func recentSessions(limit: Int = 25) -> [Session] {
         queue.sync {
             (try? withStoreLock(exclusive: false) {
                 Array(try loadStore().sessions.suffix(max(0, limit)).reversed())
             }) ?? []
+        }
+    }
+
+    public func snapshot(
+        sessionLimit: Int = 25,
+        entryLimit: Int = 200
+    ) -> Result<Snapshot, Failure> {
+        queue.sync {
+            do {
+                return try withStoreLock(exclusive: false) {
+                    let store = try loadStore()
+                    return .success(
+                        Snapshot(
+                            sessions: Array(
+                                store.sessions.suffix(max(0, sessionLimit)).reversed()
+                            ),
+                            entries: Array(
+                                store.entries.suffix(max(0, entryLimit)).reversed()
+                            ),
+                            totalProcessed: store.totalProcessed,
+                            totalSessions: store.totalSessions
+                        )
+                    )
+                }
+            } catch {
+                return .failure(Failure(message: error.localizedDescription))
+            }
         }
     }
 
@@ -280,4 +370,5 @@ public final class OperationLog: @unchecked Sendable {
         let (result, overflow) = value.addingReportingOverflow(1)
         return overflow ? Int.max : max(0, result)
     }
+
 }

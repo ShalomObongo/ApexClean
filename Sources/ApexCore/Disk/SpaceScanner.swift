@@ -238,18 +238,17 @@ public final class SpaceScanner: @unchecked Sendable {
         // few kilobytes of metadata, so treating a package as a file would
         // report every application on the Mac as approximately empty.)
         //
-        // The opaque rule is skipped at depth 0: if the user explicitly chose
-        // this folder — an external drive, say — that choice outranks a
-        // heuristic meant to stop us wandering into one by accident.
         let isPackage = values.isPackage == true
-        let isOpaque = depth > 0 && Traversal.isOpaqueContainer(url, scanRoot: scanRoot)
+        let isOpaque = Traversal.isOpaqueContainer(url, scanRoot: scanRoot)
         if isPackage || isOpaque || depth >= maxDepth {
-            let measurement = FileSize.measure(
-                url,
-                hardlinks: hardlinks,
-                isCancelled: {
-                    self.tick(); return self.isCancelled
-                })
+            let cancelled = {
+                self.tick()
+                return self.isCancelled
+            }
+            let measurement =
+                isOpaque
+                ? FileSize.boundedOpaqueMeasurement(of: url, isCancelled: cancelled)
+                : FileSize.measure(url, hardlinks: hardlinks, isCancelled: cancelled)
             return SpaceNode(
                 url: url,
                 name: name,
@@ -340,6 +339,7 @@ public enum LargeFileFinder {
         onVisit: (URL) -> Void = { _ in },
         isCancelled: () -> Bool = { false }
     ) -> [Match] {
+        let root = root.standardizedFileURL.resolvingSymlinksInPath()
         let keys: Set<URLResourceKey> = [
             .isRegularFileKey, .isDirectoryKey, .totalFileAllocatedSizeKey,
             .fileAllocatedSizeKey, .contentModificationDateKey, .linkCountKey,
@@ -403,5 +403,26 @@ public enum LargeFileFinder {
         }
 
         return Array(matches.sorted { $0.bytes > $1.bytes }.prefix(limit))
+    }
+
+    @available(*, deprecated, message: "Use the URL-valued onVisit callback")
+    public static func find(
+        in root: URL,
+        minimumBytes: Int64 = 100_000_000,
+        limit: Int = 200,
+        includesProtectedLocations: Bool = false,
+        skipping: Set<String> = [],
+        onVisit: () -> Void,
+        isCancelled: () -> Bool = { false }
+    ) -> [Match] {
+        find(
+            in: root,
+            minimumBytes: minimumBytes,
+            limit: limit,
+            includesProtectedLocations: includesProtectedLocations,
+            skipping: skipping,
+            onVisit: { _ in onVisit() },
+            isCancelled: isCancelled
+        )
     }
 }

@@ -451,6 +451,12 @@ public enum LeftoverFinder {
                 reason: "Managed by Homebrew. Use Homebrew to run the cask's reviewed uninstall hooks."
             )
         }
+        if !app.ownershipVerified {
+            return .refused(
+                reason:
+                    "Homebrew ownership could not be verified. Retry when Homebrew metadata is available."
+            )
+        }
         return .allowed
     }
 

@@ -38,6 +38,7 @@ final class ApplicationsModel: ObservableObject {
     /// Startup items mid-removal, so their row can show progress.
     @Published private(set) var removingStartupItems: Set<String> = []
     @Published private(set) var startupRemovalFailures: [String: String] = [:]
+    @Published var startupOperationNotice: String?
 
     enum Sort: String, CaseIterable, Identifiable {
         case size = "Size"
@@ -153,15 +154,13 @@ final class ApplicationsModel: ObservableObject {
         plan = nil
         uninstallOutcome = nil
         let model = self
-        let running = RunningApps.snapshot()
         queue.async {
             let plan = LeftoverFinder.plan(for: app)
             let identifier = app.bundleID.lowercased()
-            let installed = AppInventory.scan(running: running)
-            let liveSiblings = installed.filter {
-                $0.id != app.id
-                    && LeftoverFinder.identifiersOverlap($0.bundleID, identifier)
-            }.count
+            let ownership = AppInventory.identifierOwnership(
+                for: identifier,
+                excluding: app.url
+            )
             DispatchQueue.main.async {
                 model.plan = plan
                 // Preselect only matches strong enough to justify deleting
@@ -178,7 +177,10 @@ final class ApplicationsModel: ObservableObject {
                 // would have auto-ticked the preferences, containers and group
                 // containers that the surviving copy is still using — signing
                 // the user out and wiping its configuration.
-                let sharedIdentifier = identifier.isEmpty || liveSiblings > 0
+                let sharedIdentifier =
+                    identifier.isEmpty
+                    || !ownership.isReliable
+                    || !ownership.relatedPaths.isEmpty
                 model.planSelection = Set(
                     plan.leftovers
                         .filter { leftover in
@@ -257,6 +259,13 @@ final class ApplicationsModel: ObservableObject {
         let selectedIdentifierLeftovers = plan.leftovers.contains {
             planSelection.contains($0.id) && $0.confidence == .bundleIdentifier
         }
+        let selectedIdentifierURLs = Set(
+            plan.leftovers
+                .filter {
+                    planSelection.contains($0.id) && $0.confidence == .bundleIdentifier
+                }
+                .map { $0.url.standardizedFileURL.path }
+        )
 
         queue.async {
             let installed = AppInventory.scan(running: running)
@@ -275,25 +284,19 @@ final class ApplicationsModel: ObservableObject {
                 }
                 return
             }
-            let relatedSiblings = installed.filter {
-                $0.id != liveApp.id
-                    && LeftoverFinder.identifiersOverlap($0.bundleID, identifier)
-            }
-            guard !selectedIdentifierLeftovers || (!identifier.isEmpty && relatedSiblings.isEmpty) else {
-                var refused = Remover.Outcome()
-                refused.refused.append(
-                    (
-                        plan.bundle,
-                        "Another installed application shares this bundle identifier"
-                    )
-                )
-                let refusedOutcome = refused
-                DispatchQueue.main.async {
-                    model.uninstallOutcome = refusedOutcome
-                    model.isUninstalling = false
-                }
-                return
-            }
+            let ownership = AppInventory.identifierOwnership(
+                for: identifier,
+                excluding: liveApp.url
+            )
+            let identifierRefusalReason: String? =
+                selectedIdentifierLeftovers
+                    && (identifier.isEmpty
+                        || !ownership.isReliable
+                        || !ownership.relatedPaths.isEmpty)
+                ? (ownership.isReliable
+                    ? "Another installed application shares this bundle identifier"
+                    : "Installed application ownership could not be verified")
+                : nil
             let currentVerdict = LeftoverFinder.uninstallVerdict(for: liveApp)
             guard currentVerdict.isAllowed else {
                 var refused = Remover.Outcome()
@@ -317,6 +320,21 @@ final class ApplicationsModel: ObservableObject {
                 }
                 return
             }
+            if let reason = historyRef.prepareForOperation() {
+                var refused = Remover.Outcome()
+                refused.refused.append(
+                    (
+                        historyRef.location,
+                        "Uninstall did not start because History is unavailable: \(reason)"
+                    )
+                )
+                let refusedOutcome = refused
+                DispatchQueue.main.async {
+                    model.uninstallOutcome = refusedOutcome
+                    model.isUninstalling = false
+                }
+                return
+            }
             let runningBeforeUnload = DispatchQueue.main.sync { RunningApps.snapshot() }
             guard !runningBeforeUnload.contains(identifier) else {
                 var refused = Remover.Outcome()
@@ -328,20 +346,54 @@ final class ApplicationsModel: ObservableObject {
                 }
                 return
             }
-            let remover = Remover()
+            let runningLatch = ApplicationsOperationLatch()
+            let remover = Remover(
+                refusalBeforeDispose: { _ in
+                    if runningLatch.isSet {
+                        return "The application started running; the remaining uninstall was stopped"
+                    }
+                    let current = DispatchQueue.main.sync { RunningApps.snapshot() }
+                    guard current.contains(identifier) else { return nil }
+                    runningLatch.set()
+                    return "\(plan.app.name) started running; uninstall was stopped"
+                }
+            )
             var safeURLs = removalURLs
             var preloadRefusals: [(url: URL, reason: String)] = []
-            for url in launchAgentURLs where !StartupInventory.unload(plist: url) {
-                safeURLs.removeAll { $0 == url }
-                preloadRefusals.append(
-                    (url, "The launch job could not be unloaded, so its plist was left in place")
-                )
+            if let identifierRefusalReason {
+                let refusedURLs = safeURLs.filter {
+                    selectedIdentifierURLs.contains($0.standardizedFileURL.path)
+                }
+                safeURLs.removeAll {
+                    selectedIdentifierURLs.contains($0.standardizedFileURL.path)
+                }
+                preloadRefusals += refusedURLs.map { ($0, identifierRefusalReason) }
             }
+            var transitionedLaunchJobs: [URL] = []
+            for url in launchAgentURLs {
+                switch StartupInventory.unloadOutcome(plist: url) {
+                case .unloaded:
+                    transitionedLaunchJobs.append(url)
+                case .alreadyUnloaded:
+                    break
+                case .failed:
+                    safeURLs.removeAll { $0 == url }
+                    preloadRefusals.append(
+                        (url, "The launch job could not be unloaded, so its plist was left in place")
+                    )
+                }
+            }
+
             let runningBeforeRemoval = DispatchQueue.main.sync { RunningApps.snapshot() }
             guard !runningBeforeRemoval.contains(identifier) else {
                 var refused = Remover.Outcome()
                 refused.refused.append((plan.bundle, "\(plan.app.name) started running after review"))
                 refused.refused += preloadRefusals
+                for url in transitionedLaunchJobs where !StartupInventory.reload(plist: url) {
+                    refused.failed.append(
+                        (url, "The launch job was unloaded but could not be restored")
+                    )
+                }
                 let refusedOutcome = refused
                 DispatchQueue.main.async {
                     model.uninstallOutcome = refusedOutcome
@@ -351,15 +403,33 @@ final class ApplicationsModel: ObservableObject {
             }
             var outcome = remover.remove(
                 safeURLs,
-                disposal: .trash,
-                knownSizes: removalSizes
+                disposal: .delete,
+                knownSizes: removalSizes,
+                stopAfterRefusal: true
             )
             outcome.refused += preloadRefusals
+            let removedPaths = Set(outcome.removed.map(\.standardizedFileURL.path))
+            for url in transitionedLaunchJobs
+            where !removedPaths.contains(url.standardizedFileURL.path)
+                && !StartupInventory.reload(plist: url)
+            {
+                outcome.failed.append(
+                    (url, "The launch job was unloaded but could not be restored")
+                )
+            }
 
-            _ = historyRef.commitSession(
+            let session = historyRef.commitSession(
                 title: "Uninstalled \(name)",
                 entries: outcome.historyEntries
             )
+            if !outcome.historyEntries.isEmpty, session == nil {
+                outcome.failed.append(
+                    (
+                        historyRef.location,
+                        "Files were deleted, but the History entry could not be written"
+                    )
+                )
+            }
             let finalOutcome = outcome
             DispatchQueue.main.async {
                 model.uninstallOutcome = finalOutcome
@@ -367,6 +437,7 @@ final class ApplicationsModel: ObservableObject {
                 model.load()
             }
         }
+
     }
 
     // MARK: - Startup
@@ -378,29 +449,60 @@ final class ApplicationsModel: ObservableObject {
         else { return }
         removingStartupItems.insert(item.id)
         startupRemovalFailures[item.id] = nil
+        startupOperationNotice = nil
         let historyRef = history
         let url = item.url
         let id = item.id
         let model = self
         queue.async {
-            guard StartupInventory.unload(item) else {
+            if let reason = historyRef.prepareForOperation() {
+                DispatchQueue.main.async {
+                    model.removingStartupItems.remove(id)
+                    model.startupRemovalFailures[id] =
+                        "Startup item was not removed because History is unavailable: \(reason)"
+                    model.startupOperationNotice = model.startupRemovalFailures[id]
+                }
+                return
+            }
+            let unloadOutcome = StartupInventory.unloadOutcome(item)
+            guard unloadOutcome != .failed else {
                 DispatchQueue.main.async {
                     model.removingStartupItems.remove(id)
                     model.startupRemovalFailures[id] =
                         "The launch job could not be unloaded, so its plist was left in place."
+                    model.startupOperationNotice = model.startupRemovalFailures[id]
                 }
                 return
             }
             let remover = Remover()
-            let outcome = remover.remove([url], disposal: .trash)
-            _ = historyRef.commitSession(
+            let outcome = remover.remove([url], disposal: .delete)
+            let session = historyRef.commitSession(
                 title: "Removed startup item",
                 entries: outcome.historyEntries
             )
+            let rollbackFailure: String?
+            if unloadOutcome == .unloaded,
+                !outcome.removed.contains(where: {
+                    $0.standardizedFileURL == url.standardizedFileURL
+                }),
+                !StartupInventory.reload(plist: url)
+            {
+                rollbackFailure = "The launch job was unloaded but could not be restored."
+            } else {
+                rollbackFailure = nil
+            }
             DispatchQueue.main.async {
                 model.removingStartupItems.remove(id)
-                model.startupRemovalFailures[id] =
-                    outcome.refused.first?.reason ?? outcome.failed.first?.error
+                var failures =
+                    outcome.refused.map(\.reason)
+                    + outcome.failed.map(\.error)
+                if let rollbackFailure { failures.append(rollbackFailure) }
+                if !outcome.historyEntries.isEmpty, session == nil {
+                    failures.append("The startup item was deleted, but History could not be written")
+                }
+                let failure = failures.isEmpty ? nil : failures.joined(separator: " ")
+                model.startupRemovalFailures[id] = failure
+                model.startupOperationNotice = failure
                 model.load()
             }
         }
@@ -437,5 +539,22 @@ final class ApplicationsModel: ObservableObject {
         for cask in outdated where !upgrading.contains(cask.token) {
             upgrade(cask)
         }
+    }
+}
+
+private final class ApplicationsOperationLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value = false
+
+    var isSet: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return value
+    }
+
+    func set() {
+        lock.lock()
+        value = true
+        lock.unlock()
     }
 }

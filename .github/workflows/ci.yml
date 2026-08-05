@@ -244,8 +244,7 @@ jobs:
             NSDesktopFolderUsageDescription \
             NSDocumentsFolderUsageDescription \
             NSDownloadsFolderUsageDescription \
-            NSRemovableVolumesUsageDescription \
-            NSAppleEventsUsageDescription
+            NSRemovableVolumesUsageDescription
           do
             read_key "$key" >/dev/null 2>&1 || fail "missing $key in Info.plist"
           done
@@ -256,10 +255,10 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "$APP"
           codesign --display --entitlements - --xml "$APP" > entitlements.xml
 
-          # Emptying the Trash goes through Finder, which the hardened runtime
-          # blocks without this entitlement.
-          grep -q 'com.apple.security.automation.apple-events' entitlements.xml \
-            || { echo "::error::apple-events entitlement is missing"; exit 1; }
+          if grep -q 'com.apple.security.automation.apple-events' entitlements.xml; then
+            echo "::error::unused Apple Events entitlement must not be shipped"
+            exit 1
+          fi
 
       - name: Package artifact
         run: |

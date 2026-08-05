@@ -25,6 +25,12 @@ public enum Permission: String, CaseIterable, Identifiable, Codable, Sendable {
 
     public var id: String { rawValue }
 
+    /// Permissions used by the current product. Automation remains in the enum
+    /// for source and stored-preference compatibility with 1.5.
+    public static var activeCases: [Permission] {
+        [.fullDisk, .personalFolders, .appManagement]
+    }
+
     public var title: String {
         switch self {
         case .fullDisk: "Full Disk Access"
@@ -38,11 +44,11 @@ public enum Permission: String, CaseIterable, Identifiable, Codable, Sendable {
     public var purpose: String {
         switch self {
         case .fullDisk:
-            "Measure the Trash, size sandbox containers during an uninstall, and reach caches macOS keeps private."
+            "Size sandbox containers during an uninstall and reach caches macOS keeps private."
         case .personalFolders:
             "Find installers and forgotten downloads, and include these folders when mapping storage."
         case .automation:
-            "Ask Finder to empty the Trash on your behalf."
+            "Legacy compatibility. ApexClean no longer requests Finder automation."
         case .appManagement:
             "Replace an application in place when you install an update."
         }
@@ -53,11 +59,11 @@ public enum Permission: String, CaseIterable, Identifiable, Codable, Sendable {
     public var consequence: String {
         switch self {
         case .fullDisk:
-            "Without it the Trash shows as unreadable and some folders report “Size unknown”. Everything else works."
+            "Without it some folders report “Size unknown”. Everything else works."
         case .personalFolders:
             "Without it these folders are skipped entirely. No scan will ever read them."
         case .automation:
-            "Without it emptying the Trash is left to you."
+            "This permission is no longer used."
         case .appManagement:
             "Without it an update may be blocked and you finish it manually."
         }

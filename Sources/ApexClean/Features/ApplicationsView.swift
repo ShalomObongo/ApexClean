@@ -9,6 +9,7 @@ struct ApplicationsView: View {
     /// `ObservableObject` reached through `@EnvironmentObject` publishes
     /// nothing to this view, so the model must be observed here.
     @ObservedObject var model: ApplicationsModel
+    @State private var pendingStartupRemoval: StartupItem?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -37,6 +38,24 @@ struct ApplicationsView: View {
             )
         ) { box in
             UninstallSheet(plan: box.plan, model: model)
+        }
+        .alert(
+            "Delete startup item permanently?",
+            isPresented: Binding(
+                get: { pendingStartupRemoval != nil },
+                set: { if !$0 { pendingStartupRemoval = nil } }
+            ),
+            presenting: pendingStartupRemoval
+        ) { item in
+            Button("Cancel", role: .cancel) { pendingStartupRemoval = nil }
+            Button("Delete Permanently", role: .destructive) {
+                pendingStartupRemoval = nil
+                model.removeStartupItem(item)
+            }
+        } message: { item in
+            Text(
+                "\(Glob.display(item.url.path)) will be unloaded from launchd and permanently deleted. ApexClean does not provide recovery."
+            )
         }
     }
 
@@ -359,6 +378,21 @@ struct ApplicationsView: View {
     private var startupList: some View {
         ScrollView {
             VStack(spacing: 8) {
+                if let notice = model.startupOperationNotice {
+                    ApexCard(padding: 14, accent: Palette.caution) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(Palette.caution)
+                            Text(notice)
+                                .font(Typo.secondary)
+                                .foregroundStyle(Palette.inkSecondary(scheme))
+                            Spacer()
+                            IconButton(symbol: "xmark", help: "Dismiss") {
+                                model.startupOperationNotice = nil
+                            }
+                        }
+                    }
+                }
                 if model.startupItems.isEmpty {
                     StateView(
                         kind: model.isLoading
@@ -399,7 +433,7 @@ struct ApplicationsView: View {
                         isRemoving: model.removingStartupItems.contains(item.id),
                         failure: model.startupRemovalFailures[item.id]
                     ) {
-                        model.removeStartupItem(item)
+                        pendingStartupRemoval = item
                     }
                 }
             }

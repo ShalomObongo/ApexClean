@@ -15,7 +15,7 @@ struct ApexCleanApp: App {
     /// menu, the rebuild invalidates the graph, and the app pins a core forever
     /// without ever showing a window. `@AppStorage` is a plain value, so the
     /// scene list settles after one pass.
-    @AppStorage("showsMenuBarHUD") private var showsMenuBarHUD = true
+    @AppStorage("showsMenuBarHUD") private var showsMenuBarHUD = false
 
     var body: some Scene {
         Window("ApexClean", id: "main") {
@@ -23,8 +23,8 @@ struct ApexCleanApp: App {
                 .environmentObject(state)
                 .onAppear {
                     delegate.state = state
-                    delegate.reopenMainWindow = { openWindow(id: "main") }
                 }
+
         }
         .defaultSize(width: 1_180, height: 780)
         .windowToolbarStyle(.unifiedCompact(showsTitle: false))
@@ -79,7 +79,6 @@ struct ApexCleanApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     weak var state: AppState?
-    var reopenMainWindow: (() -> Void)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -96,7 +95,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         _ sender: NSApplication,
         hasVisibleWindows flag: Bool
     ) -> Bool {
-        reopenMainWindow?()
+        if let window = sender.windows.first(where: { $0.title == "ApexClean" }) {
+            window.makeKeyAndOrderFront(nil)
+            sender.activate(ignoringOtherApps: true)
+        }
         return true
     }
 

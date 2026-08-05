@@ -14,8 +14,8 @@ are narrower or more reviewable; silent safety regressions are not.
 | Area | ApexClean result |
 | :--- | :--- |
 | Path boundary | One fail-closed `PathGuard` gates every ordinary removal and rechecks at disposal time. Canonical Data-volume aliases, sacred roots, endpoint security paths, mount descendants and target identity changes are refused. |
-| Trash fallback | A failed Trash move never falls through to permanent deletion. Empty Trash delegates to Finder so per-volume Trash is included. |
-| Review | ApexClean is stronger: findings and uninstall leftovers expose per-item paths, sizes, evidence, confidence and recovery state before action. |
+| Deletion model | Cleanup follows Mole's direct-delete model. ApexClean also applies permanent deletion to reviewed uninstalls, maintenance and Space Lens, always behind an explicit irreversible confirmation. |
+| Review | ApexClean is stronger: findings and uninstall leftovers expose per-item paths, sizes, evidence and confidence before action. |
 | Running apps | ApexClean blocks relevant cache removal rather than quitting apps. Xcode CLI/Simulator processes and uninstall targets are checked again at the final action boundary. |
 | Duplicate storage | Recursive cleanup measurements and Space Lens deduplicate hard-linked inodes, and the catalog has no static parent/child rule collisions. |
 | Filesystem traversal | Recursive scans avoid child symlinks, foreign volumes, privacy-gated roots and provider-managed containers. Launch plists are read through bounded, no-follow regular-file descriptors. |
@@ -69,6 +69,8 @@ ApexClean keeps its evidence-led review but adopts Mole's conservative gates:
 - the UI never emits `sudo rm -rf` bypass instructions;
 - Homebrew and protected enterprise/security software require their official
   uninstall path.
+- the reviewed bundle and selected leftovers are deleted permanently; History
+  records the exact paths but is not presented as recovery or undo.
 
 Mole references:
 
@@ -94,8 +96,9 @@ Mole reference:
 
 ## Intentional differences
 
-- ApexClean moves ordinary removals to Trash; it does not provide Mole's broad
-  direct-delete mode.
+- Mole's generic uninstall defaults to Trash unless `--permanent` is supplied.
+  ApexClean intentionally uses the permanent mode requested by this product,
+  with a dedicated irreversible confirmation rather than an undo promise.
 - ApexClean never automatically kills a running application.
 - ApexClean does not execute `sudo` or request administrator authorization.
 - ApexClean reports allocated size rather than logical file size.

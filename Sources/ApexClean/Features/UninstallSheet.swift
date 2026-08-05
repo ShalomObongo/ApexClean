@@ -99,11 +99,11 @@ struct UninstallSheet: View {
                 }
 
                 warning(
-                    symbol: "arrow.uturn.backward.circle",
-                    tint: Palette.info,
-                    title: "Everything goes to the Trash",
+                    symbol: "exclamationmark.triangle.fill",
+                    tint: Palette.caution,
+                    title: "This uninstall is permanent",
                     detail:
-                        "Nothing here is deleted outright. If something turns out to matter, restore it from the Trash."
+                        "The checked application bundle and supporting files are deleted directly after final safety and identity checks. ApexClean records the paths in History but does not provide recovery."
                 )
 
                 if !plan.requiresAdmin.isEmpty {
@@ -287,14 +287,38 @@ struct UninstallSheet: View {
             Text(resultDetail(outcome))
                 .font(Typo.body)
                 .foregroundStyle(Palette.inkSecondary(scheme))
-            if !outcome.failed.isEmpty {
-                Text("\(outcome.failed.count) could not be removed — they may need administrator access.")
-                    .font(Typo.secondary)
-                    .foregroundStyle(Palette.caution)
+            if !outcome.refused.isEmpty || !outcome.failed.isEmpty {
+                ApexCard(padding: 12, accent: Palette.caution) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(outcome.refused.enumerated()), id: \.offset) { _, item in
+                                issueLine(path: item.url, reason: item.reason)
+                            }
+                            ForEach(Array(outcome.failed.enumerated()), id: \.offset) { _, item in
+                                issueLine(path: item.url, reason: item.error)
+                            }
+                        }
+                    }
+                    .frame(maxHeight: 180)
+                }
             }
             Spacer()
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func issueLine(path: URL, reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(Glob.display(path.path))
+                .font(.system(size: 10.5, design: .monospaced))
+                .foregroundStyle(Palette.inkSecondary(scheme))
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Text(reason)
+                .font(Typo.caption)
+                .foregroundStyle(Palette.caution)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     private func resultTitle(
@@ -305,15 +329,13 @@ struct UninstallSheet: View {
         if !complete {
             return partial ? "Uninstall only partly completed" : "Nothing was removed"
         }
-        return outcome.trashed > 0
-            ? "Moved \(Bytes.format(outcome.bytesProcessed)) to Trash"
-            : "Removed \(Bytes.format(outcome.bytesProcessed))"
+        return "Removed \(Bytes.format(outcome.bytesProcessed))"
     }
 
     private func resultDetail(_ outcome: Remover.Outcome) -> String {
         var parts: [String] = []
         if !outcome.removed.isEmpty {
-            parts.append("\(Count.items(outcome.removed.count)) moved to the Trash")
+            parts.append("\(Count.items(outcome.removed.count)) deleted")
         }
         if !outcome.refused.isEmpty {
             parts.append("\(outcome.refused.count) refused by safety checks")
@@ -338,8 +360,8 @@ struct UninstallSheet: View {
                 }
                 .disabled(model.isUninstalling)
                 ApexButton(
-                    title: "Move to Trash",
-                    symbol: "trash",
+                    title: "Delete Permanently",
+                    symbol: "trash.slash",
                     kind: .destructive,
                     isLoading: model.isUninstalling
                 ) {

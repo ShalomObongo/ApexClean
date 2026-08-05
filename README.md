@@ -25,7 +25,7 @@ then shows you <b>everything</b> before it touches <b>anything</b>.
 <img src="https://img.shields.io/badge/macOS-14%2B-4F7180?style=flat-square&logo=apple&logoColor=FFFFFF&labelColor=26384A" alt="macOS 14+">
 <img src="https://img.shields.io/badge/Apple_Silicon_%2B_Intel-426E5A?style=flat-square&labelColor=26384A" alt="Universal">
 <img src="https://img.shields.io/badge/Swift-5.9%2B-81501E?style=flat-square&logo=swift&logoColor=FFFFFF&labelColor=26384A" alt="Swift 5.9+">
-<img src="https://img.shields.io/badge/tests-191_passing-426E5A?style=flat-square&labelColor=26384A" alt="191 tests">
+<img src="https://img.shields.io/badge/tests-207_passing-426E5A?style=flat-square&labelColor=26384A" alt="207 tests">
 <img src="https://img.shields.io/badge/telemetry-none-6D5878?style=flat-square&labelColor=26384A" alt="No telemetry">
 <img src="https://img.shields.io/badge/license-GPL--3.0-8F3832?style=flat-square&labelColor=26384A" alt="GPL-3.0">
 </p>
@@ -70,9 +70,9 @@ then shows you <b>everything</b> before it touches <b>anything</b>.
 
 #### 01 / Map
 
-There is no button that deletes something you haven't seen. Every screen's primary
-action is a **scan**. Removal is a second, separate, deliberate act — and it operates
-only on the groups you ticked.
+Cleanup, Applications and Space Lens begin with a **scan**. Maintenance names the
+literal mechanism of each task and requires an irreversible confirmation whenever a
+selected task deletes files.
 
 </td>
 <td width="33%" valign="top">
@@ -90,7 +90,7 @@ zero. Maintenance tasks state what they *won't* fix.
 
 `PathGuard` is the single choke point in front of every deletion, and it must find an
 affirmative reason to allow one. Anything ambiguous is refused, not resolved. Removals
-go to the **Trash**, so undo is a drag away.
+are permanent, so the confirmation names the exact irreversible action.
 
 </td>
 </tr>
@@ -122,18 +122,17 @@ screen readable without making routine cache files look dangerous.
 ### 01 / Smart Care — one scan, grouped findings
 
 <div align="center">
-<img src="docs/images/review.webp" width="100%" alt="Coastal Atlas removal confirmation showing grouped scope, recovery and the final action">
+<img src="docs/images/review.webp" width="100%" alt="Coastal Atlas permanent-deletion confirmation showing grouped scope and the final action">
 </div>
 
 One pass across every category. Findings come back **grouped, sized and explained** —
 application caches, logs and diagnostics, system junk, browser caches, developer
-artifacts, AI tooling, installers, orphaned app data. Each group carries its evidence,
-its risk and its recovery behaviour, and each is approved individually.
+artifacts, AI tooling, installers, orphaned app data. Each group carries its evidence
+and risk, and each is approved individually.
 
 The confirmation sheet is the last thing between a scan and a deletion, so it is
-deliberately unhurried: what is going, how much of it, where it lands, and how to get
-it back. Emptying the Trash afterwards is available, opt-in, and honest about the fact
-that macOS keeps the Trash private unless the app has Full Disk Access.
+deliberately unhurried: what is going, how much of it, which running apps are holding
+items back, and the explicit statement that deletion cannot be undone.
 
 <br>
 
@@ -262,9 +261,10 @@ This app deletes files, so it is built to be distrusted.
 <tr>
 <td width="50%" valign="top">
 
-**Scan first, always.**
-There is no "clean now" button that acts before it looks. The primary action on every
-screen is a scan; removal is a second, separate, explicit act.
+**Review first, always.**
+Cleanup, uninstall and Space Lens show the discovered scope before acting. Destructive
+maintenance names the selected mechanisms and requires a separate permanent-action
+confirmation.
 
 **Every path goes through one gate.**
 `PathGuard.evaluate` is the sole choke point before any removal, and it *fails closed* —
@@ -278,9 +278,9 @@ scan time. A symlink that changes between scan and confirm cannot redirect a del
 </td>
 <td width="50%" valign="top">
 
-**Trash, not `unlink`.**
-Removals go to the Trash wherever macOS allows it. Where Trash is impossible the UI
-says so before you confirm.
+**Permanent means explicit.**
+Cleanup, uninstall, maintenance and Space Lens delete directly only after the reviewed
+paths and filesystem identities are checked again. ApexClean does not offer recovery.
 
 **Running apps block their own caches.**
 If an app is open, its data is excluded and labelled.
@@ -332,9 +332,8 @@ specifically stops working without it.
 
 | Permission | What it unlocks | Without it |
 | :--- | :--- | :--- |
-| **Full Disk Access** | Measuring the Trash, sizing sandbox containers during an uninstall | Trash shows as unreadable, some folders report "Size unknown" |
+| **Full Disk Access** | Sizing sandbox containers during an uninstall and reaching private caches | Some folders report "Size unknown" |
 | **Desktop, Documents, Downloads** | Finding installers and forgotten downloads; mapping these folders | They are skipped entirely — no scan ever reads them |
-| **Finder automation** | Emptying the Trash on your behalf | You empty it yourself |
 | **App Management** | Replacing an app in place when installing an update | An update may be blocked and you finish it manually |
 
 Full Disk Access and App Management have **no request API at any privilege level**, so
@@ -424,9 +423,8 @@ The bundled build is **ad-hoc signed**, which is enough to run locally. A distri
 build substitutes a Developer ID identity and runs `notarytool`; see the comment at the
 bottom of `Scripts/bundle.sh`.
 
-> **Optional permissions.** ApexClean works without granting it anything. Two things
-> improve if you do grant **Full Disk Access**: the Trash becomes measurable (macOS
-> hides its size otherwise), and sandbox containers can be sized during an uninstall
+> **Optional permissions.** ApexClean works without granting it anything. Granting
+> **Full Disk Access** lets sandbox containers and private caches be sized during a
 > review instead of being reported as *Size unknown*. Updating apps installed as
 > Homebrew casks may additionally prompt for **App Management**.
 
@@ -511,7 +509,7 @@ the head of a serial queue would otherwise swallow every job behind it.
 swift test
 ```
 
-**191 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
+**207 tests** covering `PathGuard` refusals, `PrivacyAccess` gating, traversal fences,
 bounded process groups, guarded directory and launch-plist reads, operation-history
 concurrency, Homebrew ownership, leftover-matching precision, uninstall plan invariants,
 catalog invariants, hardlink accounting, treemap layout, health scoring and byte formatting.
@@ -613,6 +611,6 @@ interaction model and product identity are original work.
 <img src="docs/images/icon.png" width="56" alt="">
 
 <p><b>ApexClean</b> · Storage, clearly mapped.<br>
-<sub>Free software. No telemetry. Trash-first. Fails closed.</sub></p>
+<sub>Free software. No telemetry. Review first. Fails closed.</sub></p>
 
 </div>

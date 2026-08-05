@@ -73,6 +73,25 @@ final class LeftoverMatchingTests: XCTestCase {
         XCTAssertTrue(verdict.reason?.contains("bundle identifier") == true)
     }
 
+    func testUninstallRefusesUnknownHomebrewOwnership() {
+        let app = InstalledApp(
+            url: URL(fileURLWithPath: "/Applications/Example.app"),
+            name: "Example",
+            bundleID: "com.example.app",
+            version: "",
+            bundleBytes: 0,
+            lastUsed: nil,
+            installed: nil,
+            isRunning: false,
+            isSystem: false,
+            source: .direct,
+            ownershipVerified: false
+        )
+        let verdict = LeftoverFinder.uninstallVerdict(for: app)
+        XCTAssertFalse(verdict.isAllowed)
+        XCTAssertTrue(verdict.reason?.contains("Homebrew ownership") == true)
+    }
+
     func testAcceptsWellFormedBundleIdentifiers() {
         for identifier in ["com.example.app", "codes.rambo.AirBuddy", "dev.zed.Zed-Nightly"] {
             XCTAssertTrue(LeftoverFinder.isReverseDNS(identifier), identifier)

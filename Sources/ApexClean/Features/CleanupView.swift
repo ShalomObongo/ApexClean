@@ -60,6 +60,11 @@ struct CleanupView: View {
     private var content: some View {
         ScrollView {
             VStack(spacing: 12) {
+                if let outcome = model.lastOutcome,
+                    (!outcome.failed.isEmpty || !outcome.refused.isEmpty)
+                {
+                    cleanupFailureNotice(outcome)
+                }
                 if !model.report.stalledRules.isEmpty {
                     incompleteScanNotice
                 }
@@ -72,6 +77,27 @@ struct CleanupView: View {
             .padding(.bottom, 24)
         }
         .scrollIndicators(.automatic)
+    }
+
+    private func cleanupFailureNotice(_ outcome: Remover.Outcome) -> some View {
+        ApexCard(padding: 15, accent: Palette.caution) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(outcome.removed.isEmpty ? "Cleanup did not start" : "Cleanup finished with issues")
+                    .font(Typo.cardTitle)
+                    .foregroundStyle(Palette.ink(scheme))
+                ForEach(Array(outcome.failed.enumerated()), id: \.offset) { _, item in
+                    Text(item.error)
+                        .font(Typo.secondary)
+                        .foregroundStyle(Palette.caution)
+                }
+                ForEach(Array(outcome.refused.enumerated()), id: \.offset) { _, item in
+                    Text(item.reason)
+                        .font(Typo.secondary)
+                        .foregroundStyle(Palette.caution)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var incompleteScanNotice: some View {
@@ -186,7 +212,7 @@ struct CleanupView: View {
                     .font(Typo.metric(16, weight: .bold))
                     .foregroundStyle(Palette.ink(scheme))
                 Text(
-                    "\(Count.files(model.selectedFileCount)) across \(Count.groups(model.selectedFindings.count)) · \(model.removalIsPermanent ? "deleted permanently" : "moved to Trash")"
+                    "\(Count.files(model.selectedFileCount)) across \(Count.groups(model.selectedFindings.count)) · deleted permanently"
                 )
                 .font(Typo.caption)
                 .foregroundStyle(Palette.inkTertiary(scheme))
@@ -196,12 +222,13 @@ struct CleanupView: View {
 
             ApexButton(title: "Clear", kind: .quiet) { model.selectNone() }
             ApexButton(
-                title: model.stage == .cleaning ? "Removing…" : "Remove selected",
-                symbol: "trash",
-                kind: .primary,
+                title: model.stage == .cleaning ? "Deleting…" : "Delete selected",
+                symbol: "trash.slash",
+                kind: .destructive,
                 isLoading: model.stage == .cleaning
             ) {
-                isConfirming = true
+                model.refreshRunningBlockers()
+                if model.selectedBytes > 0 { isConfirming = true }
             }
             .disabled(model.stage == .cleaning)
         }

@@ -23,6 +23,34 @@ public struct InstalledApp: Identifiable, Hashable, Sendable {
         case system = "macOS"
     }
 
+    public let ownershipVerified: Bool
+
+    public init(
+        url: URL,
+        name: String,
+        bundleID: String,
+        version: String,
+        bundleBytes: Int64,
+        lastUsed: Date?,
+        installed: Date?,
+        isRunning: Bool,
+        isSystem: Bool,
+        source: Source,
+        ownershipVerified: Bool = true
+    ) {
+        self.url = url
+        self.name = name
+        self.bundleID = bundleID
+        self.version = version
+        self.bundleBytes = bundleBytes
+        self.lastUsed = lastUsed
+        self.installed = installed
+        self.isRunning = isRunning
+        self.isSystem = isSystem
+        self.source = source
+        self.ownershipVerified = ownershipVerified
+    }
+
     public var idleDays: Int? {
         guard let lastUsed else { return nil }
         return Int(Date().timeIntervalSince(lastUsed) / 86_400)
@@ -35,6 +63,11 @@ public struct InstalledApp: Identifiable, Hashable, Sendable {
 
 /// Enumerates installed applications and the facts needed to reason about them.
 public enum AppInventory {
+    public struct IdentifierOwnership: Sendable {
+        public let relatedPaths: [URL]
+        public let isReliable: Bool
+    }
+
     private static var searchRoots: [URL] {
         let roots = [
             URL(fileURLWithPath: "/Applications"),
@@ -69,7 +102,7 @@ public enum AppInventory {
         // Ollama, `opencode-desktop` for OpenCode, `prismlauncher` for "Prism
         // Launcher"), and would claim a hand-installed app that merely shared a
         // name with some cask in the index.
-        let caskByPath = HomebrewBridge.caskTokensByAppPath()
+        let ownership = HomebrewBridge.caskOwnership()
         var seen = Set<String>()
         var apps: [InstalledApp] = []
 
@@ -86,7 +119,12 @@ public enum AppInventory {
             for url in contents where url.pathExtension == "app" {
                 guard !seen.contains(url.path) else { continue }
                 seen.insert(url.path)
-                if let app = describe(url, running: running, caskByPath: caskByPath) {
+                if let app = describe(
+                    url,
+                    running: running,
+                    caskByPath: ownership.tokensByPath,
+                    homebrewOwnershipIsReliable: ownership.isReliable
+                ) {
                     if app.isSystem, !includeSystem { continue }
                     apps.append(app)
                 }
@@ -116,10 +154,71 @@ public enum AppInventory {
         }
     }
 
+    /// Searches Spotlight's registered application metadata for copies outside
+    /// the UI inventory's normal presentation roots. An incomplete search is
+    /// never treated as proof that identifier-owned data is unique.
+    public static func identifierOwnership(
+        for bundleID: String,
+        excluding excludedURL: URL
+    ) -> IdentifierOwnership {
+        guard LeftoverFinder.isReverseDNS(bundleID),
+            Shell.exists("/usr/bin/mdfind")
+        else {
+            return IdentifierOwnership(relatedPaths: [], isReliable: false)
+        }
+
+        let result = Shell.runDetailed(
+            "/usr/bin/mdfind",
+            ["-0", "kMDItemContentType == 'com.apple.application-bundle'"],
+            timeout: 20
+        )
+        guard result.succeeded else {
+            return IdentifierOwnership(relatedPaths: [], isReliable: false)
+        }
+
+        let paths = result.output.split(separator: "\0").map {
+            URL(fileURLWithPath: String($0))
+        }
+        return IdentifierOwnership(
+            relatedPaths: relatedApplicationPaths(
+                for: bundleID,
+                excluding: excludedURL,
+                candidates: paths
+            ),
+            // Spotlight can prove a positive sibling, but a negative result is
+            // never complete across unindexed folders and volumes.
+            isReliable: false
+        )
+    }
+
+    static func relatedApplicationPaths(
+        for bundleID: String,
+        excluding excludedURL: URL,
+        candidates: [URL]
+    ) -> [URL] {
+        let excluded = excludedURL.standardizedFileURL.resolvingSymlinksInPath().path
+        var seen = Set<String>()
+        var related: [URL] = []
+        for candidate in candidates {
+            let url = candidate
+                .standardizedFileURL
+                .resolvingSymlinksInPath()
+            guard url.pathExtension.lowercased() == "app",
+                url.path != excluded,
+                seen.insert(url.path).inserted,
+                let identifier = Bundle(url: url)?.bundleIdentifier,
+                LeftoverFinder.identifiersOverlap(identifier, bundleID)
+            else { continue }
+            related.append(url)
+        }
+        return related.sorted { $0.path < $1.path }
+    }
+
     static func describe(
         _ url: URL,
         running: RunningAppsSnapshot,
-        caskByPath: [String: String]
+        caskByPath: [String: String],
+        homebrewOwnershipIsReliable: Bool = true
     ) -> InstalledApp? {
         guard let bundle = Bundle(url: url) else { return nil }
         let info = bundle.infoDictionary ?? [:]
@@ -168,7 +267,11 @@ public enum AppInventory {
             installed: values?.addedToDirectoryDate ?? values?.contentModificationDate,
             isRunning: running.contains(bundleID),
             isSystem: isSystem,
-            source: source
+            source: source,
+            ownershipVerified:
+                source != .direct
+                || !HomebrewBridge.isAvailable
+                || homebrewOwnershipIsReliable
         )
     }
 
@@ -197,6 +300,11 @@ public enum AppInventory {
 /// Thin, entirely optional Homebrew integration. Everything degrades to "no
 /// data" when brew is absent rather than becoming an error the user must resolve.
 public enum HomebrewBridge {
+    public struct CaskOwnership: Sendable {
+        public let tokensByPath: [String: String]
+        public let isReliable: Bool
+    }
+
     public static var brewPath: String? {
         ["/opt/homebrew/bin/brew", "/usr/local/bin/brew"].first { Shell.exists($0) }
     }
@@ -212,28 +320,33 @@ public enum HomebrewBridge {
     /// app name, and without falsely claiming a hand-installed app that merely
     /// shares a name with some cask.
     public static func caskTokensByAppPath() -> [String: String] {
-        guard let brew = brewPath else { return [:] }
+        caskOwnership().tokensByPath
+    }
+
+    public static func caskOwnership() -> CaskOwnership {
+        guard let brew = brewPath else {
+            return CaskOwnership(tokensByPath: [:], isReliable: true)
+        }
         let prefix = URL(fileURLWithPath: brew)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
 
         let caskroom = prefix.appendingPathComponent("Caskroom")
         let fm = FileManager.default
-        guard let tokens = try? fm.contentsOfDirectory(at: caskroom, includingPropertiesForKeys: nil)
-        else { return [:] }
-
         var map: [String: String] = [:]
-        for token in tokens {
-            guard let versions = try? fm.contentsOfDirectory(at: token, includingPropertiesForKeys: nil)
-            else { continue }
-            for version in versions {
-                guard
-                    let staged = try? fm.contentsOfDirectory(
-                        at: version, includingPropertiesForKeys: nil)
+        if let tokens = try? fm.contentsOfDirectory(at: caskroom, includingPropertiesForKeys: nil) {
+            for token in tokens {
+                guard let versions = try? fm.contentsOfDirectory(at: token, includingPropertiesForKeys: nil)
                 else { continue }
-                for item in staged where item.pathExtension == "app" {
-                    let target = item.resolvingSymlinksInPath().standardizedFileURL.path
-                    map[target] = token.lastPathComponent
+                for version in versions {
+                    guard
+                        let staged = try? fm.contentsOfDirectory(
+                            at: version, includingPropertiesForKeys: nil)
+                    else { continue }
+                    for item in staged where item.pathExtension == "app" {
+                        let target = item.resolvingSymlinksInPath().standardizedFileURL.path
+                        map[target] = token.lastPathComponent
+                    }
                 }
             }
         }
@@ -248,18 +361,26 @@ public enum HomebrewBridge {
             timeout: 30,
             environment: environment
         )
-        if metadata.succeeded {
-            map.merge(parseCaskAppOwners(metadata.output.data(using: .utf8) ?? Data())) {
+        let parsed =
+            metadata.succeeded
+            ? parseCaskAppOwnersResult(metadata.output.data(using: .utf8) ?? Data())
+            : nil
+        if let parsed {
+            map.merge(parsed) {
                 current, _ in current
             }
         }
-        return map
+        return CaskOwnership(tokensByPath: map, isReliable: parsed != nil)
     }
 
     static func parseCaskAppOwners(_ data: Data) -> [String: String] {
+        parseCaskAppOwnersResult(data) ?? [:]
+    }
+
+    static func parseCaskAppOwnersResult(_ data: Data) -> [String: String]? {
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
             let casks = root["casks"] as? [[String: Any]]
-        else { return [:] }
+        else { return nil }
 
         var result: [String: String] = [:]
         for cask in casks {
@@ -297,6 +418,24 @@ public enum HomebrewBridge {
             let output = Shell.run(brew, ["list", "--cask", "-1"], timeout: 12)
         else { return [] }
         return Set(output.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) })
+    }
+
+    @available(*, deprecated, message: "Use Homebrew's reviewed uninstall flow directly")
+    @discardableResult
+    public static func forgetCask(_ token: String) -> Bool {
+        guard let brew = brewPath else { return false }
+        let environment = ProcessInfo.processInfo.environment.merging([
+            "HOMEBREW_NO_AUTO_UPDATE": "1",
+            "HOMEBREW_NO_ANALYTICS": "1",
+            "NONINTERACTIVE": "1",
+        ]) { _, new in new }
+        let result = Shell.runDetailed(
+            brew,
+            ["uninstall", "--cask", "--force", token],
+            timeout: 120,
+            environment: environment
+        )
+        return result.succeeded
     }
 
     public struct OutdatedCask: Identifiable, Hashable, Sendable {

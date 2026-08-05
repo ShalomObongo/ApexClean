@@ -9,7 +9,7 @@ struct SpaceLensView: View {
     /// `ObservableObject` reached through `@EnvironmentObject` publishes
     /// nothing to this view, so the model must be observed here.
     @ObservedObject var model: SpaceModel
-    @State private var trashRequest: TrashRequest?
+    @State private var deleteRequest: DeleteRequest?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +17,22 @@ struct SpaceLensView: View {
                 .padding(.horizontal, 28)
                 .padding(.top, 26)
                 .padding(.bottom, 14)
+
+            if let error = model.removalError {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .foregroundStyle(Palette.caution)
+                    Text(error)
+                        .font(Typo.secondary)
+                        .foregroundStyle(Palette.inkSecondary(scheme))
+                    Spacer()
+                    IconButton(symbol: "xmark", help: "Dismiss") {
+                        model.removalError = nil
+                    }
+                }
+                .padding(.horizontal, 28)
+                .padding(.bottom, 10)
+            }
 
             if model.isScanning {
                 scanning
@@ -46,20 +62,22 @@ struct SpaceLensView: View {
             }
         }
         .alert(
-            "Move to Trash?",
+            "Delete permanently?",
             isPresented: Binding(
-                get: { trashRequest != nil },
-                set: { if !$0 { trashRequest = nil } }
+                get: { deleteRequest != nil },
+                set: { if !$0 { deleteRequest = nil } }
             ),
-            presenting: trashRequest
+            presenting: deleteRequest
         ) { request in
-            Button("Cancel", role: .cancel) { trashRequest = nil }
-            Button("Move to Trash", role: .destructive) {
-                trashRequest = nil
+            Button("Cancel", role: .cancel) { deleteRequest = nil }
+            Button("Delete Permanently", role: .destructive) {
+                deleteRequest = nil
                 request.action()
             }
         } message: { request in
-            Text("\(request.title) · \(request.detail). You can restore it from the Trash.")
+            Text(
+                "\(request.title) · \(request.detail). This file or folder is deleted directly and cannot be recovered by ApexClean."
+            )
         }
     }
 
@@ -119,7 +137,7 @@ struct SpaceLensView: View {
                 .font(Typo.metric(18))
                 .foregroundStyle(Palette.ink(scheme))
             Text(
-                "Space Lens measures allocated size — the space you actually get back —\nand every removal goes to the Trash."
+                "Space Lens measures allocated size — the space you actually get back.\nDeletion is permanent and always requires confirmation."
             )
             .font(Typo.body)
             .foregroundStyle(Palette.inkTertiary(scheme))
@@ -223,8 +241,8 @@ struct SpaceLensView: View {
                                 Button("Open here") { model.drill(into: tile.node) }
                             }
                             Divider()
-                            Button("Move to Trash", role: .destructive) {
-                                requestTrash(tile.node)
+                            Button("Delete Permanently", role: .destructive) {
+                                requestDelete(tile.node)
                             }
                         }
                     }
@@ -430,12 +448,12 @@ struct SpaceLensView: View {
 
                 if !node.isSynthetic {
                     ApexButton(
-                        title: model.removing.contains(node.id) ? "Moving to Trash" : "Move to Trash",
-                        symbol: "trash",
+                        title: model.removing.contains(node.id) ? "Deleting" : "Delete Permanently",
+                        symbol: "trash.slash",
                         kind: .destructive,
                         isLoading: model.removing.contains(node.id)
                     ) {
-                        requestTrash(node)
+                        requestDelete(node)
                     }
                     .frame(maxWidth: .infinity)
                     .disabled(model.removing.contains(node.id))
@@ -455,7 +473,7 @@ struct SpaceLensView: View {
             }
 
             Text(
-                "Space Lens can act on personal files, so removals always go to the Trash and never bypass it."
+                "Space Lens can act on personal files. Deletion is permanent, path-guarded, and never starts without confirmation."
             )
             .font(.system(size: 10.5))
             .foregroundStyle(Palette.inkTertiary(scheme))
@@ -522,42 +540,42 @@ struct SpaceLensView: View {
                         NSWorkspace.shared.activateFileViewerSelecting([match.url])
                     }
                     IconButton(
-                        symbol: "trash",
-                        help: "Move \(match.url.lastPathComponent) to Trash",
+                        symbol: "trash.slash",
+                        help: "Delete \(match.url.lastPathComponent) permanently",
                         tint: Palette.alert
                     ) {
-                        requestTrash(match)
+                        requestDelete(match)
                     }
                 }
                 .contextMenu {
                     Button("Reveal in Finder") {
                         NSWorkspace.shared.activateFileViewerSelecting([match.url])
                     }
-                    Button("Move to Trash", role: .destructive) { requestTrash(match) }
+                    Button("Delete Permanently", role: .destructive) { requestDelete(match) }
                 }
             }
         }
     }
 
-    private func requestTrash(_ node: SpaceNode) {
+    private func requestDelete(_ node: SpaceNode) {
         guard !node.isSynthetic else { return }
-        trashRequest = TrashRequest(
+        deleteRequest = DeleteRequest(
             title: node.name,
             detail: Bytes.format(node.bytes),
-            action: { model.moveToTrash(node) }
+            action: { model.delete(node) }
         )
     }
 
-    private func requestTrash(_ match: LargeFileFinder.Match) {
-        trashRequest = TrashRequest(
+    private func requestDelete(_ match: LargeFileFinder.Match) {
+        deleteRequest = DeleteRequest(
             title: match.url.lastPathComponent,
             detail: Bytes.format(match.bytes),
-            action: { model.trashLargeFile(match) }
+            action: { model.deleteLargeFile(match) }
         )
     }
 }
 
-private struct TrashRequest: Identifiable {
+private struct DeleteRequest: Identifiable {
     let id = UUID()
     let title: String
     let detail: String

@@ -16,6 +16,10 @@ public struct MaintenanceTask: Identifiable, Hashable, Sendable {
     public let requiresAdmin: Bool
     public let estimatedSeconds: Int
 
+    public var isDestructive: Bool {
+        ["quicklook", "icons", "preferences", "savedstate", "orphanagents"].contains(id)
+    }
+
     public static func == (lhs: MaintenanceTask, rhs: MaintenanceTask) -> Bool { lhs.id == rhs.id }
     public func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
@@ -27,6 +31,20 @@ public struct MaintenanceResult: Identifiable, Sendable {
     public let detail: String
     public let bytesFreed: Int64
     public var historyEntries: [OperationLog.Entry] = []
+
+    public init(
+        task: MaintenanceTask,
+        succeeded: Bool,
+        detail: String,
+        bytesFreed: Int64,
+        historyEntries: [OperationLog.Entry] = []
+    ) {
+        self.task = task
+        self.succeeded = succeeded
+        self.detail = detail
+        self.bytesFreed = bytesFreed
+        self.historyEntries = historyEntries
+    }
 }
 
 public enum MaintenanceCatalog {
@@ -80,7 +98,8 @@ public enum MaintenanceCatalog {
             id: "preferences",
             title: "Repair corrupted preferences",
             summary: "Finds preference files apps can no longer read.",
-            mechanism: "Validates third-party plists and quarantines only unreadable ones.",
+            mechanism:
+                "Validates readable third-party plists twice, then permanently deletes only files confirmed invalid.",
             symbol: "slider.horizontal.3",
             requiresAdmin: false,
             estimatedSeconds: 15
@@ -281,9 +300,6 @@ public final class MaintenanceRunner: Sendable {
     }
 
     private func repairPreferences(_ task: MaintenanceTask) -> MaintenanceResult {
-        guard let plutil = Shell.which("plutil") else {
-            return .init(task: task, succeeded: false, detail: "plutil unavailable", bytesFreed: 0)
-        }
         let preferences = PathGuard.home.appendingPathComponent("Library/Preferences")
         guard
             let contents = try? FileManager.default.contentsOfDirectory(
@@ -301,32 +317,34 @@ public final class MaintenanceRunner: Sendable {
         let candidates = contents.filter {
             $0.pathExtension == "plist" && !$0.lastPathComponent.hasPrefix("com.apple.")
         }
-        // Corruption is decided by `plutil`'s exit status, never by whether it
-        // printed anything.
-        //
-        // `plutil -lint` reports failures on **stderr** and exits 1, leaving
-        // stdout empty. The previous version used `Shell.run`, which discards
-        // stderr, so the test was really "produced no stdout" — and a timeout
-        // returns empty stdout too. Any plist slow enough to trip the 3-second
-        // budget was therefore classified as corrupt and moved to the Trash.
-        // A maintenance task must never destroy a valid file because a
-        // subprocess was slow.
+        func isConfirmedInvalid(_ url: URL) -> Bool? {
+            guard
+                let values = try? url.resourceValues(
+                    forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey]
+                ),
+                values.isRegularFile == true,
+                values.isSymbolicLink != true,
+                let size = values.fileSize,
+                size <= 16 * 1024 * 1024,
+                let data = try? Data(contentsOf: url, options: [.mappedIfSafe])
+            else { return nil }
+            return (try? PropertyListSerialization.propertyList(from: data, format: nil)) == nil
+        }
         let limit = 600
-        var timedOut = 0
+        var unreadable = 0
         for url in candidates.prefix(limit) {
-            let result = Shell.runDetailed(plutil, ["-lint", url.path], timeout: 3)
-            if result.timedOut || result.status < 0 {
-                timedOut += 1
+            guard let invalid = isConfirmedInvalid(url) else {
+                unreadable += 1
                 continue
             }
-            if result.status != 0 { broken.append(url) }
+            if invalid { broken.append(url) }
         }
 
         var notes: [String] = []
         if candidates.count > limit {
             notes.append("checked the first \(limit) of \(candidates.count)")
         }
-        if timedOut > 0 { notes.append("\(Count.files(timedOut)) could not be checked") }
+        if unreadable > 0 { notes.append("\(Count.files(unreadable)) could not be checked") }
         let suffix = notes.isEmpty ? "" : " · " + notes.joined(separator: ", ")
 
         guard !broken.isEmpty else {
@@ -337,14 +355,20 @@ public final class MaintenanceRunner: Sendable {
                 bytesFreed: 0
             )
         }
-        let outcome = Remover().remove(broken, disposal: .trash)
+        let outcome = Remover(
+            refusalBeforeDispose: { url in
+                isConfirmedInvalid(url) == true
+                    ? nil
+                    : "The preference file is no longer confirmed corrupt"
+            }
+        ).remove(broken, disposal: .delete)
         let succeeded = outcome.failed.isEmpty && outcome.refused.isEmpty
         return .init(
             task: task,
             succeeded: succeeded,
             detail: succeeded
-                ? "Moved \(Count.files(outcome.removed.count)) to Trash" + suffix
-                : "Some invalid preferences could not be moved to Trash" + suffix,
+                ? "Deleted \(Count.files(outcome.removed.count)) invalid preferences" + suffix
+                : "Some invalid preferences could not be deleted" + suffix,
             bytesFreed: outcome.bytesFreed,
             historyEntries: outcome.historyEntries
         )
@@ -362,14 +386,14 @@ public final class MaintenanceRunner: Sendable {
         guard !candidates.isEmpty else {
             return .init(task: task, succeeded: true, detail: "No stale window states", bytesFreed: 0)
         }
-        let outcome = Remover().remove(candidates, disposal: .trash)
+        let outcome = Remover().remove(candidates, disposal: .delete)
         let succeeded = outcome.failed.isEmpty && outcome.refused.isEmpty
         return .init(
             task: task,
             succeeded: succeeded,
             detail: succeeded
                 ? "Cleared \(outcome.removed.count) stale states"
-                : "Some stale states could not be moved to Trash",
+                : "Some stale states could not be deleted",
             bytesFreed: outcome.bytesFreed,
             historyEntries: outcome.historyEntries
         )
@@ -380,10 +404,29 @@ public final class MaintenanceRunner: Sendable {
         guard !orphaned.isEmpty else {
             return .init(task: task, succeeded: true, detail: "No broken startup items", bytesFreed: 0)
         }
-        let unloaded = orphaned.filter { StartupInventory.unload($0) }
-        let outcome = Remover().remove(unloaded.map(\.url), disposal: .trash)
+        var removable: [StartupItem] = []
+        var transitioned: [URL] = []
+        for item in orphaned {
+            switch StartupInventory.unloadOutcome(item) {
+            case .unloaded:
+                removable.append(item)
+                transitioned.append(item.url)
+            case .alreadyUnloaded:
+                removable.append(item)
+            case .failed:
+                break
+            }
+        }
+        var outcome = Remover().remove(removable.map(\.url), disposal: .delete)
+        let removed = Set(outcome.removed.map { $0.standardizedFileURL.path })
+        for url in transitioned
+        where !removed.contains(url.standardizedFileURL.path)
+            && !StartupInventory.reload(plist: url)
+        {
+            outcome.failed.append((url, "The launch job could not be restored"))
+        }
         let succeeded =
-            unloaded.count == orphaned.count
+            removable.count == orphaned.count
             && outcome.failed.isEmpty
             && outcome.refused.isEmpty
         return .init(

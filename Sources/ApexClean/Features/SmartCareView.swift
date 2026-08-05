@@ -26,7 +26,10 @@ struct SmartCareView: View {
                 if model.stage == .reviewing || model.stage == .cleaning {
                     groupSummary
                 }
-                if model.stage == .finished, let outcome = model.lastOutcome {
+                if (model.stage == .finished || model.stage == .reviewing),
+                    let outcome = model.lastOutcome,
+                    !outcome.failed.isEmpty || !outcome.refused.isEmpty || !outcome.removed.isEmpty
+                {
                     completionCard(outcome)
                 }
                 if !model.blockedFindings.isEmpty, model.stage == .reviewing {
@@ -242,12 +245,13 @@ struct SmartCareView: View {
         case .reviewing:
             HStack(spacing: 10) {
                 ApexButton(
-                    title: "Remove \(Bytes.format(model.selectedBytes))",
-                    symbol: "trash",
-                    kind: .primary,
+                    title: "Delete \(Bytes.format(model.selectedBytes))",
+                    symbol: "trash.slash",
+                    kind: .destructive,
                     size: .large
                 ) {
-                    isConfirming = true
+                    model.refreshRunningBlockers()
+                    if model.selectedBytes > 0 { isConfirming = true }
                 }
                 .disabled(model.selectedBytes == 0)
 
@@ -288,12 +292,12 @@ struct SmartCareView: View {
             Divider().frame(height: 12)
 
             Label {
-                Text("Recoverable from Trash")
+                Text("Permanent after confirmation")
                     .font(Typo.secondary)
             } icon: {
-                Image(systemName: "arrow.uturn.backward.circle").font(.system(size: 11))
+                Image(systemName: "exclamationmark.triangle").font(.system(size: 11))
             }
-            .foregroundStyle(Palette.inkSecondary(scheme))
+            .foregroundStyle(Palette.caution)
         }
     }
 
@@ -386,16 +390,17 @@ struct SmartCareView: View {
     // MARK: - Completion
 
     private func completionCard(_ outcome: Remover.Outcome) -> some View {
-        ApexCard(padding: 22, accent: Palette.jade) {
+        let hasIssues = !outcome.failed.isEmpty || !outcome.refused.isEmpty
+        return ApexCard(padding: 22, accent: hasIssues ? Palette.caution : Palette.jade) {
             VStack(spacing: 16) {
                 HStack(spacing: 14) {
                     ZStack {
                         Circle()
-                            .fill(Palette.jade.opacity(0.14))
+                            .fill((hasIssues ? Palette.caution : Palette.jade).opacity(0.14))
                             .frame(width: 46, height: 46)
-                        Image(systemName: "checkmark")
+                        Image(systemName: hasIssues ? "exclamationmark" : "checkmark")
                             .font(.system(size: 19, weight: .bold))
-                            .foregroundStyle(Palette.info)
+                            .foregroundStyle(hasIssues ? Palette.caution : Palette.info)
                     }
                     VStack(alignment: .leading, spacing: 3) {
                         Text(completionTitle(outcome))
@@ -436,20 +441,22 @@ struct SmartCareView: View {
 
     private func completionDetail(_ outcome: Remover.Outcome) -> String {
         var parts: [String] = ["\(Count.files(outcome.filesRemoved)) removed"]
-        if outcome.trashed > 0 {
-            parts.append("\(outcome.trashed) recoverable from Trash")
-        }
         if !outcome.refused.isEmpty {
             parts.append("\(outcome.refused.count) refused by safety checks")
+        }
+        if !outcome.failed.isEmpty {
+            parts.append("\(outcome.failed.count) failed")
         }
         return parts.joined(separator: " · ")
     }
 
     private func completionTitle(_ outcome: Remover.Outcome) -> String {
-        if outcome.bytesFreed > 0 {
-            return "Freed \(Bytes.format(outcome.bytesFreed))"
+        if outcome.removed.isEmpty, !outcome.failed.isEmpty {
+            return "Cleanup did not start"
         }
-        return "Moved \(Bytes.format(outcome.bytesProcessed)) to Trash"
+        return outcome.bytesFreed > 0
+            ? "Freed \(Bytes.format(outcome.bytesFreed))"
+            : "Deleted \(Bytes.format(outcome.bytesProcessed))"
     }
 
     private func detailLine(symbol: String, tint: Color, title: String, detail: String) -> some View {
@@ -524,9 +531,9 @@ struct SmartCareView: View {
             )
             Divider().frame(height: 30).overlay(Palette.hairline(scheme))
             assuranceItem(
-                symbol: "arrow.uturn.backward",
-                title: "Recoverable",
-                detail: "Removals go to the Trash wherever possible."
+                symbol: "checkmark.shield",
+                title: "Explicit",
+                detail: "Nothing is deleted until you confirm the exact scope."
             )
             Divider().frame(height: 30).overlay(Palette.hairline(scheme))
             assuranceItem(

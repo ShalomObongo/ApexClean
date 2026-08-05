@@ -163,6 +163,68 @@ final class ShellTests: XCTestCase {
         )
     }
 
+    func testDoubleForkedChildWithClosedOutputCannotEscapeSupervision() throws {
+        try assertDoubleForkIsContained()
+    }
+
+    func testSupervisionAvoidsAnOccupiedDescriptor198() throws {
+        var descriptors: [Int32] = []
+        while fcntl(198, F_GETFD) == -1 {
+            let descriptor = open("/dev/null", O_RDONLY | O_CLOEXEC)
+            XCTAssertGreaterThanOrEqual(descriptor, 0)
+            guard descriptor >= 0 else { break }
+            descriptors.append(descriptor)
+        }
+        defer { descriptors.forEach { close($0) } }
+        XCTAssertGreaterThanOrEqual(fcntl(198, F_GETFD), 0)
+
+        try assertDoubleForkIsContained()
+    }
+
+    private func assertDoubleForkIsContained() throws {
+        guard FileManager.default.isExecutableFile(atPath: "/usr/bin/perl") else {
+            throw XCTSkip("Perl is unavailable on this host")
+        }
+        let pidFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: pidFile) }
+        let script = """
+            defined(my $first = fork()) or die;
+            exit 0 if $first;
+            setsid();
+            defined(my $second = fork()) or die;
+            exit 0 if $second;
+            open(my $fh, ">", "\(pidFile.path)") or die;
+            print $fh "$$\\n";
+            close($fh);
+            open(STDIN, "<", "/dev/null");
+            open(STDOUT, ">", "/dev/null");
+            open(STDERR, ">", "/dev/null");
+            $SIG{TERM} = "IGNORE";
+            sleep 30;
+            """
+
+        let result = Shell.runDetailed(
+            "/usr/bin/perl",
+            ["-MPOSIX=setsid", "-e", script],
+            timeout: 2
+        )
+
+        XCTAssertTrue(result.timedOut)
+        let raw = try String(contentsOf: pidFile, encoding: .utf8)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let pid = try XCTUnwrap(Int32(raw))
+        let state = Shell.run(
+            "/bin/ps",
+            ["-p", "\(pid)", "-o", "stat="],
+            timeout: 2
+        )?.trimmingCharacters(in: .whitespacesAndNewlines)
+        XCTAssertTrue(
+            state == nil || state?.isEmpty == true || state?.hasPrefix("Z") == true,
+            "The double-forked child remained active in state \(state ?? "?")"
+        )
+    }
+
     func testMissingExecutableReturnsNil() {
         XCTAssertNil(Shell.run("/definitely/not/a/binary", []))
     }

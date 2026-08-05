@@ -26,6 +26,9 @@ final class MaintenanceModel: ObservableObject {
     }
 
     var selectedTasks: [MaintenanceTask] { tasks.filter { selection.contains($0.id) } }
+    var selectedDestructiveTasks: [MaintenanceTask] {
+        selectedTasks.filter(\.isDestructive)
+    }
 
     var estimatedSeconds: Int { selectedTasks.reduce(0) { $0 + $1.estimatedSeconds } }
 
@@ -48,18 +51,64 @@ final class MaintenanceModel: ObservableObject {
         let model = self
 
         workQueue.async { [runner] in
+            var destructiveHistoryFailed = false
             for task in pending {
                 DispatchQueue.main.async {
                     withAnimation(Motion.enter) { model.running = task.id }
                 }
+                if task.isDestructive {
+                    if destructiveHistoryFailed {
+                        let result = MaintenanceResult(
+                            task: task,
+                            succeeded: false,
+                            detail:
+                                "Skipped because a previous destructive task could not be recorded in History.",
+                            bytesFreed: 0
+                        )
+                        DispatchQueue.main.async {
+                            model.results[task.id] = result
+                            model.completedCount += 1
+                        }
+                        continue
+                    }
+                    if let reason = history.prepareForOperation() {
+                        let result = MaintenanceResult(
+                            task: task,
+                            succeeded: false,
+                            detail:
+                                "Destructive maintenance did not start because History is unavailable: \(reason)",
+                            bytesFreed: 0
+                        )
+                        destructiveHistoryFailed = true
+                        DispatchQueue.main.async {
+                            model.results[task.id] = result
+                            model.completedCount += 1
+                        }
+                        continue
+                    }
+                }
                 let result = runner.run(task)
-                _ = history.commitSession(
+                let session = history.commitSession(
                     title: "Maintenance: \(task.title)",
                     entries: result.historyEntries
                 )
+                let finalResult =
+                    !result.historyEntries.isEmpty && session == nil
+                    ? MaintenanceResult(
+                        task: result.task,
+                        succeeded: false,
+                        detail: result.detail
+                            + " The task changed files, but History could not be written.",
+                        bytesFreed: result.bytesFreed,
+                        historyEntries: result.historyEntries
+                    )
+                    : result
+                if !result.historyEntries.isEmpty, session == nil {
+                    destructiveHistoryFailed = true
+                }
                 DispatchQueue.main.async {
                     withAnimation(Motion.enter) {
-                        model.results[task.id] = result
+                        model.results[task.id] = finalResult
                         model.completedCount += 1
                     }
                 }

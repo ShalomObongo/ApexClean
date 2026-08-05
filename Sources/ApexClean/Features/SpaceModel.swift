@@ -31,10 +31,10 @@ final class SpaceModel: ObservableObject {
             NotificationCenter.default.post(name: .privacyScopeDidChange, object: nil)
         }
     }
-    /// Node ids currently being moved to the Trash, so their button can show it.
+    /// Node ids currently being deleted, so their button can show it.
     @Published private(set) var removing: Set<String> = []
     /// Surfaced when a removal was refused or failed. Silence after a click on
-    /// "Move to Trash" is indistinguishable from a broken app.
+    /// Silence after a destructive click is indistinguishable from a broken app.
     @Published var removalError: String?
 
     private var scanner: SpaceScanner?
@@ -47,9 +47,11 @@ final class SpaceModel: ObservableObject {
     /// still be wedged in the kernel and can never be stopped.
     private var generation = 0
     private var watchdog: DispatchSourceTimer?
-    /// A removal can finish while a prior removal's refresh is still scanning.
-    /// Coalesce that later refresh instead of silently dropping it.
-    private var needsRescan = false
+    private var refreshGeneration = 0
+    private var refreshScanner: SpaceScanner?
+    private var refreshTimer: DispatchSourceTimer?
+    private var isRefreshing = false
+    private var needsRefresh = false
 
     /// Removals only. Scans deliberately do **not** run here: a scan that blocks
     /// forever inside `open()` would sit at the head of a serial queue and
@@ -67,6 +69,7 @@ final class SpaceModel: ObservableObject {
 
     func scan(_ url: URL? = nil) {
         guard !isScanning else { return }
+        cancelRefresh()
         let target = url ?? scanRoot
         scanRoot = target
         isScanning = true
@@ -128,7 +131,10 @@ final class SpaceModel: ObservableObject {
                     model.unreadablePaths = scanner.unreadablePaths
                     model.isScanning = false
                 }
-                model.runPendingRescan()
+                if model.needsRefresh {
+                    model.needsRefresh = false
+                    model.refreshAfterRemoval()
+                }
             }
         }
     }
@@ -178,7 +184,6 @@ final class SpaceModel: ObservableObject {
             stalledPath = path.isEmpty ? scanRoot.path : path
             isScanning = false
         }
-        runPendingRescan()
         Log.engine.warning("Space Lens abandoned an unresponsive path: \(path, privacy: .public)")
     }
 
@@ -195,7 +200,7 @@ final class SpaceModel: ObservableObject {
         // the flag, and the user pressed Stop expecting the UI to come back.
         generation += 1
         isScanning = false
-        needsRescan = false
+        cancelRefresh()
     }
 
     /// A second click on an already-selected tile clears the selection, which
@@ -240,7 +245,7 @@ final class SpaceModel: ObservableObject {
         NSWorkspace.shared.activateFileViewerSelecting([node.url])
     }
 
-    func moveToTrash(_ node: SpaceNode) {
+    func delete(_ node: SpaceNode) {
         guard !node.isSynthetic else {
             removalError = "This tile groups smaller items. Open it and choose a real file or folder."
             return
@@ -252,17 +257,25 @@ final class SpaceModel: ObservableObject {
         removing.insert(node.id)
         let model = self
         queue.async {
+            if let reason = historyRef.prepareForOperation() {
+                DispatchQueue.main.async {
+                    model.removing.remove(node.id)
+                    model.removalError =
+                        "Deletion did not start because History is unavailable: \(reason)"
+                }
+                return
+            }
             let remover = Remover()
-            // Space Lens operates on real user documents, so the user-root guard
-            // is relaxed here — but disposal is always the Trash, never unlink.
+            // Space Lens operates on user-selected documents, so user roots are
+            // allowed only after the dedicated irreversible confirmation.
             let outcome = remover.remove(
                 [url],
-                disposal: .trash,
+                disposal: .delete,
                 allowUserRoots: true,
                 knownSizes: [url: bytes]
             )
-            _ = historyRef.commitSession(
-                title: "Moved to Trash from Space Lens",
+            let session = historyRef.commitSession(
+                title: "Deleted from Space Lens",
                 entries: outcome.historyEntries
             )
             DispatchQueue.main.async {
@@ -271,33 +284,54 @@ final class SpaceModel: ObservableObject {
                     model.removalError =
                         outcome.refused.first?.reason
                         ?? outcome.failed.first?.error
-                        ?? "The item could not be moved to the Trash."
+                        ?? "The item could not be deleted."
                     return
+                }
+                if !outcome.historyEntries.isEmpty, session == nil {
+                    model.removalError =
+                        "The item was deleted, but the History entry could not be written."
                 }
                 model.largeFiles.removeAll { $0.url == url }
                 if model.selected == node { model.selected = nil }
                 if model.hovered == node { model.hovered = nil }
-                model.requestRescan()
+                withAnimation(Motion.stage) {
+                    if node.parent == nil {
+                        model.root = nil
+                        model.current = nil
+                    } else {
+                        node.parent?.prune(node)
+                        model.objectWillChange.send()
+                    }
+                }
+                model.refreshAfterRemoval()
             }
         }
     }
 
-    func trashLargeFile(_ match: LargeFileFinder.Match) {
+    func deleteLargeFile(_ match: LargeFileFinder.Match) {
         removalError = nil
         let historyRef = history
         let url = match.url
         removing.insert(url.path)
         let model = self
         queue.async {
+            if let reason = historyRef.prepareForOperation() {
+                DispatchQueue.main.async {
+                    model.removing.remove(url.path)
+                    model.removalError =
+                        "Deletion did not start because History is unavailable: \(reason)"
+                }
+                return
+            }
             let remover = Remover()
             let outcome = remover.remove(
                 [url],
-                disposal: .trash,
+                disposal: .delete,
                 allowUserRoots: true,
                 knownSizes: [url: match.bytes]
             )
-            _ = historyRef.commitSession(
-                title: "Moved large file to Trash",
+            let session = historyRef.commitSession(
+                title: "Deleted large file",
                 entries: outcome.historyEntries
             )
             DispatchQueue.main.async {
@@ -306,29 +340,110 @@ final class SpaceModel: ObservableObject {
                     model.removalError =
                         outcome.refused.first?.reason
                         ?? outcome.failed.first?.error
-                        ?? "The file could not be moved to the Trash."
+                        ?? "The file could not be deleted."
                     return
+                }
+                if !outcome.historyEntries.isEmpty, session == nil {
+                    model.removalError =
+                        "The file was deleted, but the History entry could not be written."
                 }
                 withAnimation(Motion.enter) {
                     model.largeFiles.removeAll { $0.url == url }
+                    if let node = model.root.flatMap({ model.findNode(url: url, in: $0) }) {
+                        node.parent?.prune(node)
+                        model.objectWillChange.send()
+                    }
                 }
-                model.requestRescan()
+                model.refreshAfterRemoval()
             }
         }
     }
 
-    private func requestRescan() {
-        if isScanning {
-            needsRescan = true
-        } else {
-            scan(scanRoot)
+    private func refreshAfterRemoval() {
+        if isScanning || isRefreshing {
+            needsRefresh = true
+            return
+        }
+        isRefreshing = true
+        refreshGeneration += 1
+        let token = refreshGeneration
+        let target = scanRoot
+        let scanner = SpaceScanner(
+            includesProtectedLocations: includesProtectedLocations,
+            skipping: quarantined
+        )
+        refreshScanner = scanner
+        let includesProtected = includesProtectedLocations
+        let skipList = quarantined
+        let model = self
+
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + 30)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.refreshGeneration == token else { return }
+            scanner.cancel()
+            self.refreshGeneration += 1
+            self.isRefreshing = false
+            self.refreshScanner = nil
+            self.refreshTimer = nil
+        }
+        timer.resume()
+        refreshTimer = timer
+
+        DispatchQueue.global(qos: .utility).async {
+            let node = scanner.scan(root: target)
+            let large =
+                scanner.isStopped
+                ? []
+                : LargeFileFinder.find(
+                    in: target,
+                    minimumBytes: 200_000_000,
+                    limit: 60,
+                    includesProtectedLocations: includesProtected,
+                    skipping: skipList,
+                    isCancelled: { scanner.isStopped }
+                )
+            DispatchQueue.main.async {
+                guard model.refreshGeneration == token, !scanner.isStopped else { return }
+                model.refreshTimer?.cancel()
+                model.refreshTimer = nil
+                model.refreshScanner = nil
+                model.isRefreshing = false
+                let desiredCurrentURL = model.current?.url
+                model.root = node
+                model.current =
+                    desiredCurrentURL.flatMap { model.findNode(url: $0, in: node) }
+                    ?? node
+                model.largeFiles = large
+                model.unreadablePaths = scanner.unreadablePaths
+                if model.needsRefresh {
+                    model.needsRefresh = false
+                    model.refreshAfterRemoval()
+                }
+            }
         }
     }
 
-    private func runPendingRescan() {
-        guard needsRescan, !isScanning else { return }
-        needsRescan = false
-        scan(scanRoot)
+    private func cancelRefresh() {
+        refreshGeneration += 1
+        refreshScanner?.cancel()
+        refreshScanner = nil
+        refreshTimer?.cancel()
+        refreshTimer = nil
+        isRefreshing = false
+        needsRefresh = false
+    }
+
+    private func findNode(url: URL, in node: SpaceNode?) -> SpaceNode? {
+        guard let node else { return nil }
+        let target = url.standardizedFileURL.resolvingSymlinksInPath()
+        if node.url.standardizedFileURL.resolvingSymlinksInPath() == target {
+            return node
+        }
+        for child in node.children {
+            if let match = findNode(url: target, in: child) { return match }
+        }
+        return nil
     }
 
     func chooseFolder() {

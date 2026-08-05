@@ -128,11 +128,11 @@ struct OnboardingView: View {
                     detail: "Every scan only looks. Nothing is removed until you approve it, group by group."
                 )
                 principle(
-                    symbol: "arrow.uturn.backward",
-                    tint: Palette.info,
-                    title: "Removals go to the Trash",
+                    symbol: "checkmark.shield",
+                    tint: Palette.caution,
+                    title: "Deletion is explicit",
                     detail:
-                        "Recovery is a drag away. Where the Trash is not possible, you are told before you confirm."
+                        "Cleanup and uninstall delete permanently, but only after you review the exact scope and confirm the irreversible action."
                 )
                 principle(
                     symbol: "lock.shield",
@@ -157,7 +157,7 @@ struct OnboardingView: View {
 
             ScrollView {
                 VStack(spacing: 10) {
-                    ForEach(Permission.allCases) { permission in
+                    ForEach(Permission.activeCases) { permission in
                         PermissionRow(
                             permission: permission,
                             state: model.state(of: permission),
@@ -243,7 +243,7 @@ struct OnboardingView: View {
                 Text(
                     model.grantedCount == 0
                         ? "No permissions granted — ApexClean will work within what macOS allows by default."
-                        : "\(model.grantedCount) of \(Permission.allCases.count) permissions granted. "
+                        : "\(model.grantedCount) of \(Permission.activeCases.count) permissions granted. "
                             + "You can change any of them later from the ApexClean menu."
                 )
                 .font(Typo.body)

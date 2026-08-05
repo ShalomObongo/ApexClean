@@ -16,7 +16,7 @@ struct MenuBarHUD: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var expanded: String?
-    @AppStorage("showsMenuBarHUD") private var showsMenuBarHUD = true
+    @AppStorage("showsMenuBarHUD") private var showsMenuBarHUD = false
 
     private var snapshot: VitalsMonitor.Snapshot { vitals.snapshot }
 

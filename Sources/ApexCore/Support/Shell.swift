@@ -131,12 +131,43 @@ public enum Shell {
         let readFD = readHandle.fileDescriptor
         let writeFD = writeHandle.fileDescriptor
         let outputPipeHandle = pipeHandle(pid: getpid(), descriptor: writeFD)
+        let supervisionPipe = Pipe()
+        let supervisionRead = try movedAboveStandardDescriptors(
+            supervisionPipe.fileHandleForReading
+        )
+        let supervisionWrite = try movedAboveStandardDescriptors(
+            supervisionPipe.fileHandleForWriting
+        )
+        let supervisionReadFD = supervisionRead.fileDescriptor
+        let supervisionWriteFD = supervisionWrite.fileDescriptor
+        let occupied = Set([readFD, writeFD, supervisionReadFD, supervisionWriteFD])
+        var supervisionDescriptor: Int32 = 198
+        while occupied.contains(supervisionDescriptor)
+            || fcntl(supervisionDescriptor, F_GETFD) >= 0
+        {
+            supervisionDescriptor += 1
+        }
+        let supervisionPipeHandle = pipeHandle(
+            pid: getpid(),
+            descriptor: supervisionWriteFD
+        )
+        let currentFlags = fcntl(supervisionReadFD, F_GETFL)
+        guard currentFlags >= 0,
+            fcntl(supervisionReadFD, F_SETFL, currentFlags | O_NONBLOCK) == 0
+        else { throw LaunchFailure(code: errno) }
 
         var actions: posix_spawn_file_actions_t?
         try requirePOSIX(posix_spawn_file_actions_init(&actions))
         defer { posix_spawn_file_actions_destroy(&actions) }
 
         try requirePOSIX(posix_spawn_file_actions_adddup2(&actions, writeFD, STDOUT_FILENO))
+        try requirePOSIX(
+            posix_spawn_file_actions_adddup2(
+                &actions,
+                supervisionWriteFD,
+                supervisionDescriptor
+            )
+        )
         if mergeStandardError {
             try requirePOSIX(posix_spawn_file_actions_adddup2(&actions, writeFD, STDERR_FILENO))
         } else {
@@ -159,6 +190,8 @@ public enum Shell {
         )
         try requirePOSIX(posix_spawn_file_actions_addclose(&actions, readFD))
         try requirePOSIX(posix_spawn_file_actions_addclose(&actions, writeFD))
+        try requirePOSIX(posix_spawn_file_actions_addclose(&actions, supervisionReadFD))
+        try requirePOSIX(posix_spawn_file_actions_addclose(&actions, supervisionWriteFD))
 
         var attributes: posix_spawnattr_t?
         try requirePOSIX(posix_spawnattr_init(&attributes))
@@ -191,6 +224,7 @@ public enum Shell {
         // Only the child may retain the write side now. This lets EOF prove the
         // whole process group released its inherited output descriptors.
         try? writeHandle.close()
+        try? supervisionWrite.close()
 
         let descendants = DescendantTracker(rootPID: spawnedPID)
         descendants.start()
@@ -216,17 +250,24 @@ public enum Shell {
         }
 
         let deadline = DispatchTime.now() + max(0, timeout)
-        let timedOut = completion.wait(timeout: deadline) == .timedOut
+        var timedOut = completion.wait(timeout: deadline) == .timedOut
         if timedOut {
             terminate(
                 processGroup: spawnedPID,
                 rootIdentity: rootIdentity,
                 readHandle: readHandle,
                 outputPipeHandle: outputPipeHandle,
+                supervisionPipeHandle: supervisionPipeHandle,
                 knownDescendants: descendants.snapshot()
             )
             _ = completion.wait(timeout: .now() + 2)
+        } else if pipeHasWriter(supervisionRead) {
+            timedOut = terminateSupervisionPipeHolders(
+                handle: supervisionPipeHandle,
+                startedAfter: rootIdentity
+            )
         }
+        try? supervisionRead.close()
         let waitStatus = reap(spawnedPID)
 
         return Execution(
@@ -325,12 +366,14 @@ public enum Shell {
         rootIdentity: ProcessIdentity?,
         readHandle: FileHandle,
         outputPipeHandle: UInt64?,
+        supervisionPipeHandle: UInt64?,
         knownDescendants: Set<ProcessIdentity>
     ) {
         let descendants =
             knownDescendants
             .union(descendantPIDs(of: processGroup).compactMap(ProcessIdentity.init))
             .union(pipeHolders(of: outputPipeHandle))
+            .union(pipeHolders(of: supervisionPipeHandle))
         _ = kill(-processGroup, SIGTERM)
         for identity in descendants where identity.isCurrent {
             _ = kill(identity.pid, SIGTERM)
@@ -348,6 +391,7 @@ public enum Shell {
             descendants
             .union(descendantPIDs(of: processGroup).compactMap(ProcessIdentity.init))
             .union(pipeHolders(of: outputPipeHandle))
+            .union(pipeHolders(of: supervisionPipeHandle))
         for identity in survivors where identity.isCurrent {
             _ = kill(identity.pid, SIGKILL)
         }
@@ -358,6 +402,51 @@ public enum Shell {
         // A process that deliberately leaves the group can still retain the
         // pipe. Closing our read end keeps the timeout bounded in that case.
         try? readHandle.close()
+    }
+
+    private static func terminate(_ identities: Set<ProcessIdentity>) {
+        for identity in identities where identity.isCurrent {
+            _ = kill(identity.pid, SIGTERM)
+        }
+        let deadline = Date().addingTimeInterval(1)
+        while identities.contains(where: \.isActive), Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.02)
+        }
+        for identity in identities where identity.isCurrent {
+            _ = kill(identity.pid, SIGKILL)
+        }
+    }
+
+    private static func pipeHasWriter(_ readHandle: FileHandle) -> Bool {
+        var byte: UInt8 = 0
+        let count = Darwin.read(readHandle.fileDescriptor, &byte, 1)
+        if count == 0 { return false }
+        return count > 0 || errno == EAGAIN || errno == EWOULDBLOCK
+    }
+
+    /// A daemonizing child can fork again after the root has exited. The
+    /// inherited supervision descriptor survives closed stdio, so observe a
+    /// short settling window and terminate every holder of that exact pipe.
+    private static func terminateSupervisionPipeHolders(
+        handle: UInt64?,
+        startedAfter root: ProcessIdentity?
+    ) -> Bool {
+        guard let handle else { return false }
+        let deadline = Date().addingTimeInterval(0.15)
+        var found = Set<ProcessIdentity>()
+        repeat {
+            let holders = pipeHolders(of: handle).filter {
+                root == nil || $0.startedAtOrAfter(root!)
+            }
+            for identity in holders.subtracting(found) where identity.isCurrent {
+                _ = kill(identity.pid, SIGTERM)
+            }
+            found.formUnion(holders)
+            Thread.sleep(forTimeInterval: 0.01)
+        } while Date() < deadline
+        guard !found.isEmpty else { return false }
+        terminate(found.union(pipeHolders(of: handle)))
+        return true
     }
 
     private struct ProcessIdentity: Hashable, Sendable {
@@ -384,6 +473,11 @@ public enum Shell {
                 information.pbi_start_tvusec == startMicroseconds
             else { return false }
             return information.pbi_status != SZOMB
+        }
+
+        func startedAtOrAfter(_ other: ProcessIdentity) -> Bool {
+            (startSeconds, startMicroseconds)
+                >= (other.startSeconds, other.startMicroseconds)
         }
     }
 

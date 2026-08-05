@@ -44,15 +44,6 @@ final class CleanupModel: ObservableObject {
         }
     }
     @Published private(set) var protectedScopesGranted: Set<String> = []
-    /// Emptying the Trash is offered alongside a cleanup but never folded into
-    /// it. Everything ApexClean removes goes *to* the Trash, so emptying in the
-    /// same pass destroys the recovery path for the files being removed right
-    /// now — that is a separate decision and has to be made deliberately.
-    @Published var emptiesTrashAfterCleaning = false
-    /// What ApexClean can currently say about the Trash. Measured off the main
-    /// thread when a scan finishes so the confirmation sheet states a real
-    /// figure, or admits it cannot see one, rather than implying either.
-    @Published private(set) var trashState: Remover.TrashState = .empty
 
     private let history: OperationLog
     private var scanner: CleanupScanner?
@@ -76,26 +67,6 @@ final class CleanupModel: ObservableObject {
 
     var selectedBytes: Int64 { selectedFindings.reduce(0) { $0 + $1.bytes } }
     var selectedFileCount: Int { selectedFindings.reduce(0) { $0 + $1.fileCount } }
-
-    /// Trash contents cannot be moved to the Trash again, so a selection made up
-    /// solely of them is deleted outright. The confirmation sheet reads this so
-    /// the promise shown to the user and the disposal actually used can't drift.
-    var removalIsPermanent: Bool {
-        let findings = selectedFindings
-        return findings.count == 1 && findings.contains { $0.category == .trash }
-    }
-
-    /// True when the selection *includes* Trash contents alongside other groups.
-    /// Those items are erased rather than moved, and a sheet headed "Move to the
-    /// Trash" would otherwise quietly overstate how recoverable the pass is.
-    var selectionMixesTrash: Bool {
-        let findings = selectedFindings
-        return findings.count > 1 && findings.contains { $0.category == .trash }
-    }
-
-    var selectedTrashBytes: Int64 {
-        selectedFindings.filter { $0.category == .trash }.reduce(0) { $0 + $1.bytes }
-    }
 
     /// What the selection breaks down into, largest first.
     var selectionBreakdown: [(category: CleanupCategory, bytes: Int64, files: Int)] {
@@ -201,17 +172,6 @@ final class CleanupModel: ObservableObject {
         withAnimation(Motion.stage) {
             stage = result.isEmpty ? .finished : .reviewing
         }
-        refreshTrashSize()
-    }
-
-    /// Measured off the main thread — the Trash can hold a very large tree, and
-    /// sizing it is exactly the kind of work that must never block the UI.
-    private func refreshTrashSize() {
-        let model = self
-        scanQueue.async {
-            let state = Remover.inspectTrash()
-            DispatchQueue.main.async { model.trashState = state }
-        }
     }
 
     func cancelScan() {
@@ -264,6 +224,20 @@ final class CleanupModel: ObservableObject {
         )
     }
 
+    func refreshRunningBlockers() {
+        let running = RunningApps.snapshot()
+        var groups = report.groups
+        for groupIndex in groups.indices {
+            for findingIndex in groups[groupIndex].findings.indices {
+                let required = groups[groupIndex].findings[findingIndex].requiresQuit
+                groups[groupIndex].findings[findingIndex].blockedBy = required.compactMap {
+                    running.contains($0) ? running.displayName(for: $0) : nil
+                }
+            }
+        }
+        report.groups = groups
+    }
+
     // MARK: - Removal
 
     func clean() {
@@ -292,68 +266,105 @@ final class CleanupModel: ObservableObject {
         blockedAtCleanTime = heldBack
         stage = .cleaning
 
-        let urls = findings.flatMap { finding in finding.items.map { $0.url } }
-        var knownSizes: [URL: Int64] = [:]
-        for finding in findings {
-            for item in finding.items { knownSizes[item.url] = item.bytes }
-        }
-        let permanent = removalIsPermanent
         let historyRef = history
-        let emptiesTrash = emptiesTrashAfterCleaning
-        let removalSizes = knownSizes
         let model = self
 
         scanQueue.async {
-            let remover = Remover()
-            var outcome = remover.remove(
-                urls,
-                disposal: permanent ? .delete : .trash,
-                // Never relaxed for a catalog-driven clean. This used to be
-                // `allowUserRoots: permanent`, which quietly turned the
-                // "delete instead of using the Trash" checkbox into "and also
-                // stop protecting Documents, Desktop, Keychains and .ssh" —
-                // the one moment those guards matter most, since there is no
-                // Trash to recover from.
-                allowUserRoots: false,
-                knownSizes: removalSizes
-            )
-            // Deliberately last. Emptying first would leave this pass's own
-            // removals sitting in a Trash the user asked to be empty, which is
-            // the opposite of what they chose.
-            if emptiesTrash {
-                // This pass's own trashed items are erased but not charged for
-                // again — the space they occupy is reclaimed once, not twice.
-                let emptied = remover.emptyTrash(alreadyCounted: outcome.trashedLocations)
-                outcome.removed += emptied.removed
-                outcome.refused += emptied.refused
-                outcome.failed += emptied.failed
-                outcome.bytesProcessed += emptied.bytesProcessed
-                outcome.bytesFreed += emptied.bytesFreed
-                outcome.filesRemoved += emptied.filesRemoved
-                outcome.historyEntries += emptied.historyEntries
-                if emptied.failed.isEmpty, emptied.refused.isEmpty {
-                    outcome.historyEntries = outcome.historyEntries.map { entry in
-                        var final = entry
-                        final.recoverable = false
-                        return final
-                    }
-                    outcome.trashed = 0
+            var outcome = Remover.Outcome()
+            if let reason = historyRef.prepareForOperation() {
+                outcome.failed.append(
+                    (
+                        historyRef.location,
+                        "Cleanup did not start because History is unavailable: \(reason)"
+                    )
+                )
+                let finalOutcome = outcome
+                DispatchQueue.main.async {
+                    model.finishClean(finalOutcome, session: nil, heldBack: heldBack)
                 }
+                return
+            }
+
+            var heldBackDuringRemoval = 0
+            let runningLatch = OperationLatch()
+
+            for finding in findings {
+                if runningLatch.isSet { break }
+                let live = DispatchQueue.main.sync { RunningApps.snapshot() }
+                guard finding.requiresQuit.allSatisfy({ !live.contains($0) }) else {
+                    heldBackDuringRemoval += 1
+                    continue
+                }
+
+                let required = finding.requiresQuit
+                let remover = Remover(
+                    refusalBeforeDispose: { _ in
+                        if runningLatch.isSet {
+                            return "A protected app started running; the remaining cleanup was stopped"
+                        }
+                        let current = DispatchQueue.main.sync { RunningApps.snapshot() }
+                        guard let identifier = required.first(where: current.contains) else {
+                            return nil
+                        }
+                        runningLatch.set()
+                        return
+                            "\(current.displayName(for: identifier)) started running; this cleanup group was left untouched"
+                    }
+                )
+                let urls = finding.items.map(\.url)
+                let sizes = Dictionary(uniqueKeysWithValues: finding.items.map { ($0.url, $0.bytes) })
+                let findingOutcome = remover.remove(
+                    urls,
+                    disposal: .delete,
+                    allowUserRoots: false,
+                    knownSizes: sizes,
+                    stopAfterRefusal: true
+                )
+                if findingOutcome.removed.isEmpty,
+                    !findingOutcome.refused.isEmpty,
+                    !required.isEmpty
+                {
+                    heldBackDuringRemoval += 1
+                }
+                outcome.merge(findingOutcome)
             }
             let session = historyRef.commitSession(
                 title: "Cleanup",
                 entries: outcome.historyEntries
             )
+            if !outcome.historyEntries.isEmpty, session == nil {
+                outcome.failed.append(
+                    (
+                        historyRef.location,
+                        "Files were deleted, but the History entry could not be written"
+                    )
+                )
+            }
             let finalOutcome = outcome
+            let totalHeldBack = heldBack + heldBackDuringRemoval
             DispatchQueue.main.async {
-                model.finishClean(finalOutcome, session: session)
+                model.finishClean(
+                    finalOutcome,
+                    session: session,
+                    heldBack: totalHeldBack
+                )
             }
         }
+
     }
 
-    private func finishClean(_ outcome: Remover.Outcome, session: OperationLog.Session?) {
+    private func finishClean(
+        _ outcome: Remover.Outcome,
+        session: OperationLog.Session?,
+        heldBack: Int
+    ) {
         lastOutcome = outcome
         lastSession = session
+        blockedAtCleanTime = heldBack
+        if outcome.removed.isEmpty, !outcome.failed.isEmpty {
+            withAnimation(Motion.stage) { stage = .reviewing }
+            return
+        }
 
         // Drop everything we removed so the review list reflects reality without
         // needing a full rescan.
@@ -369,12 +380,9 @@ final class CleanupModel: ObservableObject {
                 groups.append(CleanupGroup(id: group.id, category: group.category, findings: findings))
             }
         }
+
         report.groups = groups
         selection = []
-        // A one-shot choice, not a setting. Emptying the Trash should be agreed
-        // to each time it happens, never inherited by the next cleanup.
-        emptiesTrashAfterCleaning = false
-        refreshTrashSize()
 
         withAnimation(Motion.stage) { stage = .finished }
     }
@@ -384,6 +392,23 @@ final class CleanupModel: ObservableObject {
         withAnimation(Motion.stage) {
             stage = report.isEmpty ? .idle : .reviewing
             lastOutcome = nil
+        }
+    }
+
+    private final class OperationLatch: @unchecked Sendable {
+        private let lock = NSLock()
+        private var value = false
+
+        var isSet: Bool {
+            lock.lock()
+            defer { lock.unlock() }
+            return value
+        }
+
+        func set() {
+            lock.lock()
+            value = true
+            lock.unlock()
         }
     }
 }

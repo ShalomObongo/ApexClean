@@ -65,6 +65,77 @@ public enum FileSize {
         return Int64(values?.totalFileAllocatedSize ?? values?.fileAllocatedSize ?? 0)
     }
 
+    /// Bytes whose final hardlink is contained inside `url`.
+    ///
+    /// A directory can contain a file that is also linked elsewhere. Counting
+    /// that allocation as freed would overstate a permanent deletion.
+    public static func reclaimableSize(of url: URL) -> Int64 {
+        struct Key: Hashable {
+            let device: dev_t
+            let inode: ino_t
+        }
+        struct Link {
+            var observed: Int
+            let total: Int
+            let bytes: Int64
+        }
+
+        var rootStatus = stat()
+        guard lstat(url.path, &rootStatus) == 0 else { return 0 }
+        let rootMode = rootStatus.st_mode & mode_t(S_IFMT)
+        if rootMode == mode_t(S_IFREG) {
+            return rootStatus.st_nlink <= 1 ? allocatedSize(of: url) : 0
+        }
+        guard rootMode == mode_t(S_IFDIR),
+            !Traversal.isOpaqueContainer(url, scanRoot: url),
+            let enumerator = FileManager.default.enumerator(
+                at: url,
+                includingPropertiesForKeys: Array(allocationKeys),
+                options: [],
+                errorHandler: { _, _ in true }
+            )
+        else { return 0 }
+
+        let fence = Traversal.VolumeFence(root: url)
+        var reclaimable: Int64 = 0
+        var links: [Key: Link] = [:]
+        for case let child as URL in enumerator {
+            if !fence.admits(child) {
+                enumerator.skipDescendants()
+                continue
+            }
+            guard let values = try? child.resourceValues(forKeys: allocationKeys) else {
+                enumerator.skipDescendants()
+                continue
+            }
+            if values.isDirectory == true {
+                if Traversal.isOpaqueContainer(child, scanRoot: url) {
+                    enumerator.skipDescendants()
+                }
+                continue
+            }
+            guard values.isRegularFile == true else { continue }
+            let bytes = Int64(values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0)
+            guard let count = values.linkCount, count > 1 else {
+                reclaimable += bytes
+                continue
+            }
+            var status = stat()
+            guard lstat(child.path, &status) == 0 else { continue }
+            let key = Key(device: status.st_dev, inode: status.st_ino)
+            if var link = links[key] {
+                link.observed += 1
+                links[key] = link
+            } else {
+                links[key] = Link(observed: 1, total: count, bytes: bytes)
+            }
+        }
+        for link in links.values where link.observed >= link.total {
+            reclaimable += link.bytes
+        }
+        return reclaimable
+    }
+
     /// Recursively measures a path. `isCancelled` is polled often enough that a
     /// user-initiated stop feels immediate even inside a huge directory.
     public static func measure(
@@ -137,7 +208,7 @@ public enum FileSize {
             // still looks measured.
             if isChildDirectory, Traversal.isOpaqueContainer(child, scanRoot: scanRoot) {
                 enumerator.skipDescendants()
-                result = result + outsideMeasure(of: child, isCancelled: isCancelled)
+                result = result + boundedOpaqueMeasurement(of: child, isCancelled: isCancelled)
                 continue
             }
 
@@ -155,7 +226,10 @@ public enum FileSize {
     /// `du` is a separate process with its own deadline, so a provider-backed
     /// store that would park an in-process enumerator forever costs a bounded
     /// wait instead. `-s` for the total, `-k` because the output is KiB.
-    private static func outsideMeasure(of url: URL, isCancelled: () -> Bool) -> Measurement {
+    static func boundedOpaqueMeasurement(
+        of url: URL,
+        isCancelled: () -> Bool = { false }
+    ) -> Measurement {
         guard !isCancelled() else { return Measurement() }
         let result = Shell.runDetailed("/usr/bin/du", ["-skx", url.path], timeout: 8)
         guard !result.timedOut,

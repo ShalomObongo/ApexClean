@@ -53,7 +53,7 @@ final class OnboardingModel: ObservableObject {
             Settings.prepareForChangedSignature()
             step = .welcome
             resumed = false
-            states = Dictionary(uniqueKeysWithValues: Permission.allCases.map { ($0, .notDetermined) })
+            states = Dictionary(uniqueKeysWithValues: Permission.activeCases.map { ($0, .notDetermined) })
         } else {
             step = saved
             resumed = saved != .welcome
@@ -88,7 +88,7 @@ final class OnboardingModel: ObservableObject {
     }
 
     var grantedCount: Int {
-        Permission.allCases.filter { state(of: $0).isGranted }.count
+        Permission.activeCases.filter { state(of: $0).isGranted }.count
     }
 
     /// Re-reads every permission from macOS.
@@ -99,7 +99,7 @@ final class OnboardingModel: ObservableObject {
     func refresh() {
         let asked = Settings.askedPermissions
         var next: [Permission: PermissionState] = [:]
-        for permission in Permission.allCases {
+        for permission in Permission.activeCases {
             next[permission] = Permissions.state(
                 of: permission,
                 allowingProbe: asked.contains(permission)
@@ -164,7 +164,7 @@ final class OnboardingModel: ObservableObject {
     /// Settings panes in a row would just lose the user.
     func grantAllRequestable() {
         Task {
-            for permission in Permission.allCases
+            for permission in Permission.activeCases
             where permission.isRequestable && !state(of: permission).isGranted {
                 pending = permission
                 let result = await Self.requestOffMainThread(permission)

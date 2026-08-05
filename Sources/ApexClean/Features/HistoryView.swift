@@ -8,13 +8,16 @@ struct HistoryView: View {
 
     @State private var sessions: [OperationLog.Session] = []
     @State private var entries: [OperationLog.Entry] = []
+    @State private var loadError: String?
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 header
 
-                if sessions.isEmpty {
+                if let loadError {
+                    errorState(loadError)
+                } else if sessions.isEmpty {
                     emptyState
                 } else {
                     totals
@@ -32,12 +35,19 @@ struct HistoryView: View {
     private func reload() {
         let history = state.history
         Task.detached(priority: .utility) {
-            let sessions = history.recentSessions(limit: 30)
-            let entries = history.recentEntries(limit: 120)
+            let snapshot = history.snapshot(sessionLimit: 30, entryLimit: 120)
             await MainActor.run {
-                self.sessions = sessions
-                self.entries = entries
-                state.refreshHistory()
+                switch snapshot {
+                case let .success(value):
+                    sessions = value.sessions
+                    entries = value.entries
+                    loadError = nil
+                    state.refreshHistory()
+                case let .failure(error):
+                    sessions = []
+                    entries = []
+                    loadError = error.localizedDescription
+                }
             }
         }
     }
@@ -47,11 +57,7 @@ struct HistoryView: View {
             eyebrow: "History",
             title: "Recent activity, fully local",
             subtitle: "The latest sessions and paths from the durable on-device operation log."
-        ) {
-            ApexButton(title: "Reveal Trash", symbol: "trash", kind: .secondary) {
-                NSWorkspace.shared.open(PathGuard.home.appendingPathComponent(".Trash"))
-            }
-        }
+        )
     }
 
     private var totals: some View {
@@ -60,12 +66,7 @@ struct HistoryView: View {
                 "Handled in total", Bytes.format(state.totalHandledEver), Palette.jade,
                 "arrow.down.circle")
             statTile("Recent sessions", "\(sessions.count)", Palette.info, "clock")
-            statTile(
-                "Recoverable",
-                "\(sessions.reduce(0) { $0 + $1.recoverableCount })",
-                Palette.cyan,
-                "arrow.uturn.backward"
-            )
+            statTile("Recent paths", "\(entries.count)", Palette.cyan, "list.bullet")
         }
     }
 
@@ -99,7 +100,7 @@ struct HistoryView: View {
                                 .font(Typo.cardTitle)
                                 .foregroundStyle(Palette.ink(scheme))
                             Text(
-                                "\(Count.items(session.itemCount)) · \(session.recoverableCount) recoverable from Trash"
+                                "\(Count.items(session.itemCount)) recorded"
                             )
                             .font(Typo.caption)
                             .foregroundStyle(Palette.inkTertiary(scheme))
@@ -133,11 +134,17 @@ struct HistoryView: View {
                     ForEach(entries) { entry in
                         HStack(spacing: 8) {
                             Image(
-                                systemName: entry.recoverable ? "arrow.uturn.backward.circle" : "xmark.circle"
+                                systemName: entry.recoverable
+                                    ? "archivebox"
+                                    : "xmark.circle"
                             )
                             .font(.system(size: 9))
-                            .foregroundStyle(entry.recoverable ? Palette.jade : Palette.inkTertiary(scheme))
-                            .help(entry.recoverable ? "In the Trash" : "Removed directly")
+                            .foregroundStyle(Palette.inkTertiary(scheme))
+                            .help(
+                                entry.recoverable
+                                    ? "Legacy entry: moved to Trash at the time; current availability is unknown"
+                                    : "Removed directly"
+                            )
                             Text(Glob.display(entry.path))
                                 .font(.system(size: 10.5, design: .monospaced))
                                 .foregroundStyle(Palette.inkSecondary(scheme))
@@ -168,12 +175,33 @@ struct HistoryView: View {
                     .font(Typo.metric(16))
                     .foregroundStyle(Palette.ink(scheme))
                 Text(
-                    "When ApexClean removes something, it will be listed here with its exact path, size, and whether it can be restored from the Trash."
+                    "When ApexClean removes something, it will be listed here with its exact path, size, and time."
                 )
                 .font(Typo.body)
                 .foregroundStyle(Palette.inkTertiary(scheme))
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func errorState(_ message: String) -> some View {
+        ApexCard(padding: 28, accent: Palette.caution) {
+            VStack(spacing: 10) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 28, weight: .light))
+                    .foregroundStyle(Palette.caution)
+                Text("History is unavailable")
+                    .font(Typo.metric(16))
+                    .foregroundStyle(Palette.ink(scheme))
+                Text(message)
+                    .font(Typo.body)
+                    .foregroundStyle(Palette.inkTertiary(scheme))
+                    .multilineTextAlignment(.center)
+                ApexButton(title: "Try again", symbol: "arrow.clockwise", kind: .secondary) {
+                    reload()
+                }
             }
             .frame(maxWidth: .infinity)
         }

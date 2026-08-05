@@ -9,6 +9,7 @@ struct MaintenanceView: View {
     /// `ObservableObject` reached through `@EnvironmentObject` publishes
     /// nothing to this view, so the model must be observed here.
     @ObservedObject var model: MaintenanceModel
+    @State private var isConfirmingDestructiveRun = false
 
     var body: some View {
         ScrollView {
@@ -18,6 +19,14 @@ struct MaintenanceView: View {
                 grid
                     .disabled(model.isRunning)
                 honesty
+            }
+            .alert("Run irreversible maintenance?", isPresented: $isConfirmingDestructiveRun) {
+                Button("Cancel", role: .cancel) {}
+                Button("Run Permanently", role: .destructive) { model.run() }
+            } message: {
+                Text(
+                    "\(model.selectedDestructiveTasks.map(\.title).joined(separator: ", ")). These tasks permanently delete the specific cache, preference, saved-state or launch-agent files they validate. ApexClean does not provide recovery."
+                )
             }
             .padding(28)
             .frame(maxWidth: 900)
@@ -40,7 +49,11 @@ struct MaintenanceView: View {
                 kind: .primary,
                 isLoading: model.isRunning
             ) {
-                model.run()
+                if model.selectedDestructiveTasks.isEmpty {
+                    model.run()
+                } else {
+                    isConfirmingDestructiveRun = true
+                }
             }
             .disabled(model.selection.isEmpty || model.isRunning)
         }

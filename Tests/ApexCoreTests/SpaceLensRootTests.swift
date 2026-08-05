@@ -47,6 +47,45 @@ final class SpaceLensRootTests: XCTestCase {
 /// A container that is not walked into must still be counted. Reporting zero
 /// for it is worse than omitting it, because the parent still looks measured.
 final class OpaqueContainerSizingTests: XCTestCase {
+    func testExplicitOpaqueRootIsMeasuredWithoutBuildingChildren() throws {
+        let parent = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let library = parent.appendingPathComponent("Library.photoslibrary", isDirectory: true)
+        try FileManager.default.createDirectory(
+            at: library.appendingPathComponent("originals", isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        defer { try? FileManager.default.removeItem(at: parent) }
+        try Data(repeating: 0xA5, count: 32_768)
+            .write(to: library.appendingPathComponent("originals/photo.bin"))
+
+        let node = try XCTUnwrap(SpaceScanner().scan(root: library))
+
+        XCTAssertGreaterThan(node.bytes, 0)
+        XCTAssertTrue(node.children.isEmpty)
+    }
+
+    final class LargeFileAliasTests: XCTestCase {
+        func testSymlinkedRootFindsTheSameFileExactlyOnce() throws {
+            let parent = FileManager.default.temporaryDirectory
+                .appendingPathComponent(UUID().uuidString, isDirectory: true)
+            let real = parent.appendingPathComponent("real", isDirectory: true)
+            let alias = parent.appendingPathComponent("alias", isDirectory: true)
+            try FileManager.default.createDirectory(at: real, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: parent) }
+            let file = real.appendingPathComponent("large.bin")
+            try Data(repeating: 0xA5, count: 32_768).write(to: file)
+            try FileManager.default.createSymbolicLink(at: alias, withDestinationURL: real)
+
+            let realMatches = LargeFileFinder.find(in: real, minimumBytes: 1)
+            let aliasMatches = LargeFileFinder.find(in: alias, minimumBytes: 1)
+
+            XCTAssertEqual(realMatches.count, 1)
+            XCTAssertEqual(aliasMatches.map(\.url.path), realMatches.map(\.url.path))
+            XCTAssertEqual(realMatches.first?.url.lastPathComponent, "large.bin")
+        }
+    }
+
     func testAMeasuredFolderIncludesContainersItRefusesToWalkInto() throws {
         let pictures = PathGuard.home.appendingPathComponent("Pictures")
         guard FileManager.default.fileExists(atPath: pictures.path) else {

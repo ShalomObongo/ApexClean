@@ -1,9 +1,8 @@
 import Darwin
 import Foundation
 
-/// Performs removals. Prefers the Trash so every action stays recoverable, and
-/// re-validates through `PathGuard` at the final boundary rather than trusting a
-/// decision made earlier during the scan.
+/// Performs removals and re-validates through `PathGuard` at the final boundary
+/// rather than trusting a decision made earlier during the scan.
 public final class Remover {
     public struct Outcome: @unchecked Sendable {
         public var removed: [URL] = []
@@ -14,6 +13,11 @@ public final class Remover {
         /// Bytes actually released from the filesystem. Moving to Trash does
         /// not contribute until the Trash is emptied.
         public var bytesFreed: Int64 = 0
+        @available(*, deprecated, renamed: "bytesProcessed")
+        public var bytesReclaimed: Int64 {
+            get { bytesProcessed }
+            set { bytesProcessed = newValue }
+        }
         public var filesRemoved: Int = 0
         public var trashed: Int = 0
         /// Where trashed items ended up.
@@ -28,24 +32,58 @@ public final class Remover {
         public var isEmpty: Bool { removed.isEmpty && refused.isEmpty && failed.isEmpty }
 
         public init() {}
+
+        public mutating func merge(_ other: Outcome) {
+            removed += other.removed
+            refused += other.refused
+            failed += other.failed
+            bytesProcessed += other.bytesProcessed
+            bytesFreed += other.bytesFreed
+            filesRemoved += other.filesRemoved
+            trashed += other.trashed
+            trashedLocations += other.trashedLocations
+            historyEntries += other.historyEntries
+            usedFinder = usedFinder || other.usedFinder
+        }
     }
 
     public enum Disposal {
-        /// Move to Trash. Recoverable, and the default everywhere it works.
+        /// Move to Trash. Retained for source compatibility with ApexCore 1.5.
         case trash
-        /// Unlink directly. Only for content the Trash cannot hold (items already
-        /// inside `~/.Trash`, or targets on volumes without a Trash directory).
+        /// Unlink directly after all safety and identity checks pass.
         case delete
     }
 
     private let beforeDispose: ((URL) -> Void)?
+    private let refusalBeforeDispose: ((URL) -> String?)?
+    private let legacyHistory: OperationLog?
 
-    public convenience init() {
-        self.init(beforeDispose: nil)
+    public convenience init(history: OperationLog? = nil) {
+        self.init(history: history, beforeDispose: nil, refusalBeforeDispose: nil)
+    }
+
+    public convenience init(refusalBeforeDispose: @escaping (URL) -> String?) {
+        self.init(
+            history: nil,
+            beforeDispose: nil,
+            refusalBeforeDispose: refusalBeforeDispose
+        )
     }
 
     init(beforeDispose: ((URL) -> Void)?) {
+        self.legacyHistory = nil
         self.beforeDispose = beforeDispose
+        self.refusalBeforeDispose = nil
+    }
+
+    private init(
+        history: OperationLog?,
+        beforeDispose: ((URL) -> Void)?,
+        refusalBeforeDispose: ((URL) -> String?)?
+    ) {
+        self.legacyHistory = history
+        self.beforeDispose = beforeDispose
+        self.refusalBeforeDispose = refusalBeforeDispose
     }
 
     @discardableResult
@@ -54,6 +92,7 @@ public final class Remover {
         disposal: Disposal = .trash,
         allowUserRoots: Bool = false,
         knownSizes: [URL: Int64] = [:],
+        stopAfterRefusal: Bool = false,
         progress: ((Int, Int) -> Void)? = nil
     ) -> Outcome {
         var outcome = Outcome()
@@ -81,17 +120,27 @@ public final class Remover {
             }
             guard let approvedIdentity = FileIdentity(url) else {
                 outcome.refused.append((url, "Could not verify the filesystem identity"))
+                if stopAfterRefusal { break }
                 continue
             }
 
+            if let reason = refusalBeforeDispose?(url) {
+                outcome.refused.append((url, reason))
+                if stopAfterRefusal { break }
+                continue
+            }
             let measurement: FileSize.Measurement
             if let known = knownSizes[url] {
                 measurement = FileSize.Measurement(bytes: known, fileCount: 1)
             } else {
                 measurement = FileSize.measure(url)
             }
-
             beforeDispose?(url)
+            if let reason = refusalBeforeDispose?(url) {
+                outcome.refused.append((url, reason))
+                if stopAfterRefusal { break }
+                continue
+            }
             let finalVerdict = PathGuard.evaluate(url, allowUserRoots: allowUserRoots)
             guard finalVerdict.isAllowed else {
                 outcome.refused.append((url, finalVerdict.reason ?? "Final safety check failed"))
@@ -99,6 +148,36 @@ public final class Remover {
             }
             guard FileIdentity(url) == approvedIdentity else {
                 outcome.refused.append((url, "The item changed after it was reviewed"))
+                continue
+            }
+            if let reason = Self.partialDownloadRefusal(for: url) {
+                outcome.refused.append((url, reason))
+                if stopAfterRefusal { break }
+                continue
+            }
+            let reclaimableBytes =
+                disposal == .delete
+                ? Guarded.run(budget: 8) { FileSize.reclaimableSize(of: url) } ?? 0
+                : 0
+            if let reason = refusalBeforeDispose?(url) {
+                outcome.refused.append((url, reason))
+                if stopAfterRefusal { break }
+                continue
+            }
+            let disposalVerdict = PathGuard.evaluate(url, allowUserRoots: allowUserRoots)
+            guard disposalVerdict.isAllowed else {
+                outcome.refused.append(
+                    (url, disposalVerdict.reason ?? "Disposal safety check failed")
+                )
+                continue
+            }
+            guard FileIdentity(url) == approvedIdentity else {
+                outcome.refused.append((url, "The item changed during final sizing"))
+                continue
+            }
+            if let reason = Self.partialDownloadRefusal(for: url) {
+                outcome.refused.append((url, reason))
+                if stopAfterRefusal { break }
                 continue
             }
 
@@ -115,18 +194,16 @@ public final class Remover {
                 }
                 outcome.removed.append(url)
                 outcome.bytesProcessed += measurement.bytes
-                if !usedTrash, approvedIdentity.linkCount <= 1 {
-                    outcome.bytesFreed += measurement.bytes
-                }
+                if !usedTrash { outcome.bytesFreed += reclaimableBytes }
                 outcome.filesRemoved += max(1, measurement.fileCount)
-                outcome.historyEntries.append(
-                    .init(
-                        path: url.path,
-                        bytes: measurement.bytes,
-                        recoverable: usedTrash,
-                        date: Date()
-                    )
+                let entry = OperationLog.Entry(
+                    path: url.path,
+                    bytes: measurement.bytes,
+                    recoverable: usedTrash,
+                    date: Date()
                 )
+                outcome.historyEntries.append(entry)
+                legacyHistory?.recordLegacy(entry)
             } catch {
                 // A Trash request that could not be honoured is reported as a
                 // failure, not quietly completed as a permanent deletion.
@@ -152,15 +229,9 @@ public final class Remover {
 
     /// Disposes of one item, or throws.
     ///
-    /// A failed `trashItem` used to fall through to `removeItem`, turning a
-    /// request the user approved on the promise "you can put it back" into a
-    /// permanent deletion — and saying nothing. That is worst on exactly the
-    /// volumes where it fails: an external disk or a network share with no
-    /// `.Trashes`, where the selection is likely to be the user's own files
-    /// rather than caches. It now refuses, and the caller reports it.
-    ///
-    /// Mole behaves the same way: a failed trash is logged and skipped, never
-    /// escalated to `rm` (`lib/core/file_ops.sh:839-859`).
+    /// A Trash request remains explicit and never falls through to deletion.
+    /// ApexClean itself uses `.delete`; `.trash` remains only for ApexCore source
+    /// compatibility.
     private func dispose(_ url: URL, disposal: Disposal) throws -> Disposed {
         // Items already in the Trash cannot be trashed again.
         let inTrash = Self.isInsideUserTrash(url)
@@ -192,11 +263,24 @@ public final class Remover {
             return "Could not verify whether this partial download is still active"
         }
 
-        let result = Shell.runDetailed(lsof, ["-F", "n", "--", url.path], timeout: 4)
+        var isDirectory: ObjCBool = false
+        let directory =
+            FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            && isDirectory.boolValue
+        let arguments =
+            directory
+            ? ["-F", "n", "+D", url.path]
+            : ["-F", "n", "--", url.path]
+        let result = Shell.runDetailed(lsof, arguments, timeout: 4)
         if result.timedOut || result.status < 0 {
             return "Could not verify whether this partial download is still active"
         }
-        return result.status == 0 ? "This partial download is still open in another process" : nil
+        if result.status == 0 {
+            return "This partial download is still open in another process"
+        }
+        return result.status == 1 && result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? nil
+            : "Could not verify whether this partial download is still active"
     }
 
     static func requiresDeveloperToolsIdle(_ url: URL) -> Bool {
