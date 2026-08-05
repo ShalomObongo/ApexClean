@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://shalomobongo.github.io/ApexClean/sitemap.xml
